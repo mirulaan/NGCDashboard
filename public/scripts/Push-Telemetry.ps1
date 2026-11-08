@@ -205,19 +205,39 @@ Write-Host "Done EXTRACT VERSIONS AND MOD DATES" -ForegroundColor Cyan
 # 7. EXTRACT SSD STATUS
 $allVolumesData = @()
 $nvmeDisks = Get-Disk | Where-Object BusType -eq 'NVMe'
+if (-not $nvmeDisks) {
+    # Fallback to any disk with volumes if NVMe bus type is not explicitly matched
+    $nvmeDisks = Get-Disk | Where-Object Number -ne $null
+}
+
 $smartctlpth = "C:\Program Files\smartmontools\bin\smartctl.exe"
 
 foreach ($disk in $nvmeDisks) {
-    $physicalDrive = "/dev/pd$($disk.Number)"
-    $smartData = & $smartctlpth -a -j $physicalDrive | ConvertFrom-Json
-    
-    $temperature = $smartData.temperature.current
-    $percentageUsed = $smartData.nvme_smart_health_information_log.percentage_used
+    $temperature = 0
+    $percentageUsed = 0
 
-    $partitions = Get-Partition -DiskNumber $disk.Number | Where-Object DriveLetter
+    if (Test-Path $smartctlpth) {
+        try {
+            $physicalDrive = "/dev/pd$($disk.Number)"
+            $smartOutput = & $smartctlpth -a -j $physicalDrive 2>$null
+            if ($smartOutput) {
+                $smartData = $smartOutput | ConvertFrom-Json
+                if ($smartData.temperature.current) {
+                    $temperature = $smartData.temperature.current
+                }
+                if ($smartData.nvme_smart_health_information_log.percentage_used) {
+                    $percentageUsed = $smartData.nvme_smart_health_information_log.percentage_used
+                }
+            }
+        } catch {
+            Write-Host "Warning: smartctl failed to read disk $($disk.Number): $_" -ForegroundColor Yellow
+        }
+    }
+
+    $partitions = Get-Partition -DiskNumber $disk.Number -ErrorAction SilentlyContinue | Where-Object DriveLetter
     foreach ($part in $partitions) {
-        $vol = Get-Volume -Partition $part
-        if ($vol) {
+        $vol = Get-Volume -Partition $part -ErrorAction SilentlyContinue
+        if ($vol -and $vol.Size -gt 0) {
             $volumeObject = [ordered]@{
                 DiskModel          = [string]$disk.FriendlyName
                 PhysicalDiskNumber = [int]$disk.Number
@@ -231,7 +251,7 @@ foreach ($disk in $nvmeDisks) {
         }
     }
 }
-$ssdStatus = $allVolumesData | Sort-Object DriveLetter
+$ssdStatus = @($allVolumesData | Sort-Object DriveLetter)
 Write-Host "Done EXTRACT SSD STATUS" -ForegroundColor Cyan
 
 
@@ -260,18 +280,29 @@ if ($null -ne $vsbKey) {
 
 # 2. EXTRACT GPU VIA NATIVE NVIDIA-SMI (Bypasses HWiNFO entirely)
 $nvidiaSmi = "C:\Windows\System32\nvidia-smi.exe"
+if (-not (Test-Path $nvidiaSmi)) {
+    $nvidiaSmi = "C:\Program Files\NVIDIA Corporation\NVSMI\nvidia-smi.exe"
+}
+if (-not (Test-Path $nvidiaSmi)) {
+    $cmd = Get-Command nvidia-smi -ErrorAction SilentlyContinue
+    if ($cmd) { $nvidiaSmi = $cmd.Source }
+}
+
 if (Test-Path $nvidiaSmi) {
     try {
         # Queries exactly Temp, Power(W), and Clock(MHz) instantly
         $gpuData = & $nvidiaSmi --query-gpu=temperature.gpu,power.draw,clocks.gr --format=csv,noheader,nounits
         if ($gpuData) {
-            $gpuParts = $gpuData -split ','
-            $gpuTemp = $gpuParts[0].Trim()
-            $gpuPower = $gpuParts[1].Trim()
-            $gpuClock = $gpuParts[2].Trim()
+            $gpuLine = ($gpuData | Select-Object -First 1)
+            $gpuParts = $gpuLine -split ','
+            if ($gpuParts.Count -ge 3) {
+                $gpuTemp = $gpuParts[0].Trim()
+                $gpuPower = $gpuParts[1].Trim()
+                $gpuClock = $gpuParts[2].Trim()
+            }
         }
     } catch {
-        Write-Host "NVIDIA-SMI failed to read GPU data." -ForegroundColor Yellow
+        Write-Host "NVIDIA-SMI failed to read GPU data: $_" -ForegroundColor Yellow
     }
 }
 
@@ -307,6 +338,10 @@ Write-Host $jsonPayload
 
 
 # 10. PUSH TO SERVER
+if ([string]::IsNullOrWhiteSpace($plant) -or [string]::IsNullOrWhiteSpace($line) -or [string]::IsNullOrWhiteSpace($tier1)) {
+    Write-Host "WARNING: Required identity fields (Plant, Line, Tier 1) are missing or empty from PC_Info.xml. Server will reject this payload with HTTP 422." -ForegroundColor Yellow
+}
+
 try {
     $response = Invoke-RestMethod -Uri $apiUrl -Method Post -Body $jsonPayload -ContentType "application/json"
     Write-Host "Server Response: " -ForegroundColor Green

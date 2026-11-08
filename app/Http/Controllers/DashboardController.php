@@ -37,21 +37,32 @@ class DashboardController extends Controller
 
                 // 4. THE FIX: If cache is empty but DB has old data (happens when offline)
                 // We rebuild the JSON structure manually from the database row!
-                if (!$nodeData && $latestLog && $latestLog->ssdLogs->isNotEmpty()) {
+                if (!$nodeData && $latestLog) {
                     $ssdArray = [];
-                    foreach ($latestLog->ssdLogs as $ssd) {
-                        $ssdArray[] = [
-                            'PercentageUsed' => $ssd->percentage_used,
-                            'TotalSpaceGB' => $ssd->total_space_gb,
-                            'RemainingSpaceGB' => $ssd->remaining_space_gb,
-                            'DriveLetter' => $ssd->drive_letter,
-                            // Adding these just in case you need them later
-                            'PhysicalDiskNumber' => $ssd->physical_disk_number,
-                            'DiskModel' => $ssd->disk_model,
-                            'TemperatureCelsius' => $ssd->temperature_celsius
-                        ];
+                    if ($latestLog->ssdLogs && $latestLog->ssdLogs->isNotEmpty()) {
+                        foreach ($latestLog->ssdLogs as $ssd) {
+                            $ssdArray[] = [
+                                'PercentageUsed' => $ssd->percentage_used,
+                                'TotalSpaceGB' => $ssd->total_space_gb,
+                                'RemainingSpaceGB' => $ssd->remaining_space_gb,
+                                'DriveLetter' => $ssd->drive_letter,
+                                // Adding these just in case you need them later
+                                'PhysicalDiskNumber' => $ssd->physical_disk_number,
+                                'DiskModel' => $ssd->disk_model,
+                                'TemperatureCelsius' => $ssd->temperature_celsius
+                            ];
+                        }
                     }
-                    $nodeData = ['SSD_Status' => $ssdArray];
+                    $nodeData = [
+                        'SSD_Status' => $ssdArray,
+                        'PC Thermal' => [
+                            'CPU Temp' => $latestLog->cpu_temp,
+                            'CPU Thermal Throttle' => $latestLog->cpu_thermal_throttle,
+                            'GPU Temp' => $latestLog->gpu_temp,
+                            'GPU Power' => $latestLog->gpu_power,
+                            'GPU Clock' => $latestLog->gpu_clock,
+                        ],
+                    ];
                 }
 
                 $grid[] = [
@@ -164,17 +175,6 @@ class DashboardController extends Controller
     {
         $key = "{$plant}-{$line}-{$side}";
         $matrix = Cache::get('plant_matrix', []);
-        
-        // If the node has data, use it. Otherwise, provide empty structure to prevent page crashes.
-        $data = $matrix[$key] ?? [
-            'Plant' => $plant,
-            'Line' => $line,
-            'Tier 1' => '-',
-            'Tier 2' => '-',
-            'Version' => [],
-            'Config Model' => [],
-            'SSD_Status' => []
-        ];
 
         // Fetch historical data for the table
         $history = TelemetryLog::with('ssdLogs')
@@ -184,7 +184,68 @@ class DashboardController extends Controller
             ->latest()
             ->take(10)
             ->get();
-            
+
+        // If the node has data in cache, use it. Otherwise, rebuild from latest DB record
+        $latestRecord = $history->first();
+        if (isset($matrix[$key])) {
+            $data = $matrix[$key];
+        } elseif ($latestRecord) {
+            $ssdArray = [];
+            foreach ($latestRecord->ssdLogs as $ssd) {
+                $ssdArray[] = [
+                    'DiskModel' => $ssd->disk_model,
+                    'PhysicalDiskNumber' => $ssd->physical_disk_number,
+                    'DriveLetter' => $ssd->drive_letter,
+                    'TotalSpaceGB' => $ssd->total_space_gb,
+                    'RemainingSpaceGB' => $ssd->remaining_space_gb,
+                    'TemperatureCelsius' => $ssd->temperature_celsius,
+                    'PercentageUsed' => $ssd->percentage_used,
+                ];
+            }
+            $data = [
+                'Plant' => $latestRecord->plant,
+                'Line' => $latestRecord->line,
+                'Tier 1' => $latestRecord->tier_1 ?? '-',
+                'Tier 2' => $latestRecord->tier_2 ?? '-',
+                'Version' => [
+                    'solw' => $latestRecord->version_solw,
+                    'MiddleWare' => $latestRecord->version_middleware,
+                    'DIMR' => $latestRecord->version_dimr,
+                    'IOC.bas' => $latestRecord->version_ioc,
+                ],
+                'Config Model' => array_filter([
+                    'SkuMode' => $latestRecord->config_sku_mode,
+                    'Post' => $latestRecord->config_post,
+                    'NoGlove' => $latestRecord->config_noglove,
+                    'Pre' => $latestRecord->config_pre,
+                    'GSS Defect' => $latestRecord->config_gss,
+                    'Post Black' => $latestRecord->config_post_black,
+                    'NoGlove Black' => $latestRecord->config_noglove_black,
+                    'Pre Black' => $latestRecord->config_pre_black,
+                    'GSS Black' => $latestRecord->config_gss_black,
+                    'GSS Machine' => $latestRecord->config_gss_machine,
+                ], fn($val) => !is_null($val)),
+                'SSD_Status' => $ssdArray,
+                'PC Thermal' => [
+                    'CPU Temp' => $latestRecord->cpu_temp,
+                    'CPU Thermal Throttle' => $latestRecord->cpu_thermal_throttle,
+                    'GPU Temp' => $latestRecord->gpu_temp,
+                    'GPU Power' => $latestRecord->gpu_power,
+                    'GPU Clock' => $latestRecord->gpu_clock,
+                ],
+            ];
+        } else {
+            $data = [
+                'Plant' => $plant,
+                'Line' => $line,
+                'Tier 1' => '-',
+                'Tier 2' => '-',
+                'Version' => [],
+                'Config Model' => [],
+                'SSD_Status' => []
+            ];
+        }
+
         // NEW query for the Chart (Gets all logs from the last 30 days)
         $chartData = \App\Models\TelemetryLog::with('ssdLogs')
             ->where('plant', $plant)->where('line', $line)->where('side', $side)
