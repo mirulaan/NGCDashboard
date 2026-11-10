@@ -11,6 +11,23 @@
 
 ## Progress & Change Log
 
+### [2026-11-10] - IIS Server Setup & Deployment Readiness
+
+#### 1. Runtime Environment & PHP Extensions
+- Enabled `curl`, `zip`, and `sockets` extensions in `php.ini` to support Composer package management, external API calls, and Flysystem SFTP adapter connectivity.
+
+#### 2. Dependencies & Application Bootstrap
+- Installed full PHP dependencies via Composer (`composer install`) and initialized application encryption key (`php artisan key:generate`).
+- Initialized SQLite database (`database/database.sqlite`), executed all migration schemas (users, cache, jobs, personal access tokens, telemetry logs, and SSD logs), and ran seeders for default operator and admin roles.
+
+#### 3. Frontend Compilation
+- Installed Node dependencies and compiled production asset manifests and CSS/JS bundles via Vite (`npm run build`).
+
+#### 4. IIS Integration & Verification
+- Recycled IIS Application Pool (`NGCDashboard`) and verified `200 OK` responses on root dashboard (`/`) and authentication endpoints (`/login`).
+
+---
+
 ### [2026-11-09] - Bug Fixes & Reliability Enhancements
 
 #### 1. Edge Telemetry Collector (`public/scripts/Push-Telemetry.ps1`)
