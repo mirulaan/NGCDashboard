@@ -35,17 +35,3 @@ jobs:
           path: |
             public/scripts/NGCTelemetryAgent.zip
             public/scripts/NGCTelemetryAgent.exe
-
-      - name: Commit Pre-Built Agent to Repository
-        shell: pwsh
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add public/scripts/NGCTelemetryAgent.zip public/scripts/NGCTelemetryAgent.exe
-          $status = git status --porcelain
-          if ($status) {
-            git commit -m "build: package standalone NGCTelemetryAgent for offline distribution [skip ci]"
-            git push origin main
-          } else {
-            Write-Host "No changes in binary package to commit."
-          }
