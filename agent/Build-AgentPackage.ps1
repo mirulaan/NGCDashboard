@@ -12,8 +12,12 @@
 param(
     [string]$Configuration = "Release",
     [string]$Runtime = "win-x64",
-    [string]$OutputDir = "$PSScriptRoot\..\public\scripts"
+    [string]$OutputDir = ""
 )
+
+if ([string]::IsNullOrWhiteSpace($OutputDir)) {
+    $OutputDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\public\scripts"))
+}
 
 $ErrorActionPreference = "Stop"
 
