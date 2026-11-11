@@ -90,6 +90,9 @@ class DashboardController extends Controller
             'Line' => 'required|string',
             'Tier 1' => 'required|string',
             'Tier 2' => 'nullable|string',
+            'IpAddress' => 'nullable|string',
+            'Agent' => 'nullable|array',
+            'Agent.Version' => 'nullable|string',
             'Version' => 'nullable|array',
             'Config Model' => 'nullable|array',
             'SSD_Status' => 'nullable|array',
@@ -118,11 +121,16 @@ class DashboardController extends Controller
         
         $key = "{$plant}-{$line}-{$side}";
 
+        $clientIp = $validated['IpAddress'] ?? $request->ip();
+        $agentVersion = $validated['Agent']['Version'] ?? $request->input('Agent.Version') ?? null;
+
         // Save telemetry data to database
         $log = TelemetryLog::create([
             'plant' => $plant,
             'line' => $line,
             'side' => $side,
+            'ip_address' => $clientIp,
+            'agent_version' => $agentVersion,
             'tier_1' => $validated['Tier 1'] ?? null,
             'tier_2' => $validated['Tier 2'] ?? null,
             'version_solw' => $validated['Version']['solw'] ?? null,

@@ -31,7 +31,10 @@ public class TelemetryCollectorService
         // 1. Identity XML (PC_Info.xml)
         ExtractIdentity(payload);
 
-        // 2. Vision Model Config
+        // 2. Local Network IP (172.16.x.x)
+        payload.IpAddress = DetectLocal172Ip();
+
+        // 3. Vision Model Config
         ExtractVisionConfig(payload);
 
         // 3. Software File Versions
@@ -266,5 +269,42 @@ public class TelemetryCollectorService
         }
 
         return null;
+    }
+
+    private static string DetectLocal172Ip()
+    {
+        try
+        {
+            foreach (var ni in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (ni.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up) continue;
+                var ipProps = ni.GetIPProperties();
+                foreach (var addr in ipProps.UnicastAddresses)
+                {
+                    if (addr.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+                    {
+                        var ip = addr.Address.ToString();
+                        if (ip.StartsWith("172.16.") && !ip.EndsWith(".255")) return ip;
+                    }
+                }
+            }
+
+            // Fallback for dev / test subnets
+            foreach (var ni in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (ni.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up) continue;
+                var ipProps = ni.GetIPProperties();
+                foreach (var addr in ipProps.UnicastAddresses)
+                {
+                    if (addr.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+                    {
+                        var ip = addr.Address.ToString();
+                        if (ip.StartsWith("192.168.") && !ip.EndsWith(".255")) return ip;
+                    }
+                }
+            }
+        }
+        catch { }
+        return "";
     }
 }

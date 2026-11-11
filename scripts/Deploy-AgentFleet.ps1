@@ -36,30 +36,40 @@ if ($TargetIps.Count -gt 0) {
     }
 
     if (Test-Path $DbPath) {
-        Write-Host "Querying node IP addresses from database: $DbPath..." -ForegroundColor Cyan
+        Write-Host "Querying 172.16.x.x target PC IP addresses from database: $DbPath..." -ForegroundColor Cyan
         try {
-            $sqliteQuery = "SELECT DISTINCT ip_address FROM telemetry_logs WHERE ip_address IS NOT NULL AND ip_address != ''"
-            if (-not [string]::IsNullOrWhiteSpace($Plant)) {
-                $sqliteQuery += " AND plant = '$Plant'"
-            }
-            $sqliteQuery += " ORDER BY updated_at DESC LIMIT 60;"
+            # Deterministically find the latest log row (MAX(id)) per unique (Plant, Line, Side)
+            $plantFilter = if (-not [string]::IsNullOrWhiteSpace($Plant)) { "AND plant = '$Plant'" } else { "" }
             
-            # Use sqlite3.exe if available or php artisan
-            $rawIps = & php -r "
+            $sqliteQuery = "SELECT t.plant, t.line, t.side, t.ip_address, t.created_at as last_seen FROM telemetry_logs t INNER JOIN (SELECT plant, line, side, MAX(id) as max_id FROM telemetry_logs WHERE (ip_address LIKE '172.16.%' OR ip_address LIKE '192.168.%') AND ip_address != '127.0.0.1' $plantFilter GROUP BY plant, line, side) latest ON t.id = latest.max_id ORDER BY CAST(t.line AS INTEGER) ASC, t.side ASC;"
+            
+            # Use php PDO to query SQLite database
+            $phpQueryScript = "
                 \$pdo = new PDO('sqlite:' . '$($DbPath -replace '\\', '/');');
                 \$stmt = \$pdo->query(\"$sqliteQuery\");
-                while (\$row = \$stmt->fetch(PDO::FETCH_ASSOC)) {
-                    echo \$row['ip_address'] . PHP_EOL;
-                }
-            " 2>$null
-
-            if ($rawIps) {
-                foreach ($line in ($rawIps -split "`r?`n")) {
-                    $trimmed = $line.Trim()
-                    if ($trimmed -match '^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$' -and -not $ipList.Contains($trimmed)) {
-                        $ipList.Add($trimmed)
+                if (\$stmt) {
+                    while (\$row = \$stmt->fetch(PDO::FETCH_ASSOC)) {
+                        echo \$row['plant'] . '|' . \$row['line'] . '|' . \$row['side'] . '|' . \$row['ip_address'] . '|' . \$row['last_seen'] . PHP_EOL;
                     }
                 }
+            "
+            $rawRows = & php -r $phpQueryScript 2>$null
+
+            if ($rawRows) {
+                Write-Host "`nTarget Optical Inspection Roster Discovered:" -ForegroundColor Green
+                Write-Host "------------------------------------------------------------" -ForegroundColor Gray
+                foreach ($line in ($rawRows -split "`r?`n")) {
+                    if ([string]::IsNullOrWhiteSpace($line)) { continue }
+                    $parts = $line.Split('|')
+                    if ($parts.Count -ge 4) {
+                        $p = $parts[0]; $l = $parts[1]; $s = $parts[2]; $ip = $parts[3].Trim()
+                        Write-Host "  Plant $p | Line $l-$s -> Target IP: $ip" -ForegroundColor Cyan
+                        if ($ip -match '^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$' -and -not $ipList.Contains($ip)) {
+                            $ipList.Add($ip)
+                        }
+                    }
+                }
+                Write-Host "------------------------------------------------------------" -ForegroundColor Gray
             }
         } catch {
             Write-Warning "Could not query SQLite directly: $($_.Exception.Message)"

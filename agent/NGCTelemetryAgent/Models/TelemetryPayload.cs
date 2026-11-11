@@ -16,6 +16,9 @@ public class TelemetryPayload
     [JsonPropertyName("Tier 2")]
     public string Tier2 { get; set; } = "";
 
+    [JsonPropertyName("IpAddress")]
+    public string IpAddress { get; set; } = "";
+
     [JsonPropertyName("Agent")]
     public AgentInfo Agent { get; set; } = new();
 

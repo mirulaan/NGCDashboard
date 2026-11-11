@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class TelemetryLog extends Model
 {
     protected $fillable = [
-        'plant', 'line', 'side', 'tier_1', 'tier_2',
+        'plant', 'line', 'side', 'ip_address', 'agent_version', 'tier_1', 'tier_2',
         'version_solw', 'version_middleware', 'version_dimr', 'version_ioc',
         'config_sku_mode', // <-- Add this new column here
         'config_post', 'config_noglove', 'config_pre', 'config_gss',

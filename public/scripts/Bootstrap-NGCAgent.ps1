@@ -49,7 +49,7 @@ if ([string]::IsNullOrWhiteSpace($ServerIp)) {
     if (Test-Path "D:\Acer-File") {
         $ServerIp = "192.168.100.243"
     } else {
-        $localIp = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object IPAddress -match "^172\.16\.").IPAddress | Select-Object -First 1
+        $localIp = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -match "^172\.16\." -and $_.IPAddress -notmatch "\.255$" } | Select-Object -First 1).IPAddress
         if ($localIp) {
             $ServerIp = $localIp -replace '\.\d+$', '.2'
         } else {

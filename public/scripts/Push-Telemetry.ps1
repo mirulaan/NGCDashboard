@@ -4,16 +4,22 @@ if (-Not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     Exit
 }
 
-# 2. DETERMINE TARGET IP ADDRESS
+# 2. DETERMINE TARGET IP ADDRESS & LOCAL PC IP (172.16.x.x)
+$pcIp = ""
 $ipAddress = ""
 if (Test-Path "D:\Acer-File") {
     $ipAddress = "192.168.100.243"
+    $pcIp = "192.168.100.243"
 } else {
-    # Find any local IP starting with 172.16.
-    $localIp = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object IPAddress -match "^172\.16\.").IPAddress | Select-Object -First 1
-    if ($localIp) {
+    # Specifically find local IP starting with 172.16. (ignoring camera/isolated NICs and broadcast)
+    $localIpObj = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | 
+        Where-Object { $_.IPAddress -match "^172\.16\." -and $_.IPAddress -notmatch "\.255$" } | 
+        Select-Object -First 1
+
+    if ($localIpObj) {
+        $pcIp = $localIpObj.IPAddress
         # Replace whatever the last number is with .2 (e.g., 172.16.50.150 -> 172.16.50.2)
-        $ipAddress = $localIp -replace '\.\d+$', '.2'
+        $ipAddress = $pcIp -replace '\.\d+$', '.2'
     } else {
         Write-Host "ERROR: Could not determine target IP address. No 172.16.x.x network found." -ForegroundColor Red
         Pause
@@ -21,7 +27,8 @@ if (Test-Path "D:\Acer-File") {
     }
 }
 $apiUrl = "http://$ipAddress/api/system-status"
-Write-Host "Target API URL: $apiUrl" -ForegroundColor Cyan
+Write-Host "Detected Edge PC IP: $pcIp" -ForegroundColor Green
+Write-Host "Target API URL:     $apiUrl" -ForegroundColor Cyan
 
 
 # ====================================================================
@@ -322,6 +329,7 @@ $payload = [ordered]@{
     "Line"         = $line
     "Tier 1"       = $tier1
     "Tier 2"       = $tier2
+    "IpAddress"    = $pcIp
     "Version"      = $versionObj
     "Config Model" = $configModel
     "SSD_Status"   = $ssdStatus
