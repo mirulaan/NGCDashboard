@@ -65,12 +65,8 @@ Write-Host "Building self-contained single-file binary for $Runtime ($Configurat
 $tempBin = Join-Path $stagingDir "bld_bin"
 $tempObj = Join-Path $stagingDir "bld_obj"
 
-$nugetConfigFile = Join-Path $PSScriptRoot "nuget.config"
-$configArg = if (Test-Path $nugetConfigFile) { @("--configfile", $nugetConfigFile) } else { @() }
-
 # 3. Compile & Publish Self-Contained Executable (Isolate build output to avoid file locks)
 & dotnet publish $projectPath `
-    @configArg `
     -c $Configuration `
     -r $Runtime `
     --self-contained true `

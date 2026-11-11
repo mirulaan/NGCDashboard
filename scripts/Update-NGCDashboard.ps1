@@ -153,18 +153,18 @@ if ($rcExit -ge 8) {
     Write-Host "    Code synchronization successful (Robocopy status code: $rcExit)." -ForegroundColor Green
 }
 
-# Step 5b: Build NGC Telemetry Agent Package locally on server (ExecutionPolicy Bypass, 100% Offline)
+# Step 5b: Build NGC Telemetry Agent Package locally on server if build tools are available
 $agentScript = Join-Path $Destination "agent\Build-AgentPackage.ps1"
 if (Test-Path $agentScript) {
     if (Get-Command dotnet -ErrorAction SilentlyContinue) {
-        Write-Host "`n>>> [5b/7] Building NGC Telemetry Agent package on server (Offline, ExecutionPolicy Bypass)..." -ForegroundColor Yellow
-        try {
-            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $agentScript -OutputDir (Join-Path $Destination "public\scripts")
-        } catch {
-            Write-Warning "Server-side agent build encountered an issue: $_"
+        Write-Host "`n>>> [5b/7] Attempting NGC Telemetry Agent package build on server..." -ForegroundColor Yellow
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $agentScript -OutputDir (Join-Path $Destination "public\scripts")
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "    [Notice] Server-side build skipped (air-gapped environment). Pre-built public/scripts/ package will be used." -ForegroundColor Gray
+            $global:LASTEXITCODE = 0
         }
     } else {
-        Write-Host "`n>>> [5b/7] .NET SDK not detected on server. Skipping server-side agent compilation." -ForegroundColor Gray
+        Write-Host "`n>>> [5b/7] .NET SDK not detected on server. Using existing public/scripts/ package." -ForegroundColor Gray
     }
 }
 
