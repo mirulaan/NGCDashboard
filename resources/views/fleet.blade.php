@@ -106,6 +106,9 @@
                             <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block leading-none mb-1">Line {{ $node['line'] }}</span>
                             <div class="flex items-center gap-1.5">
                                 <span class="text-lg font-extrabold text-slate-800 leading-none">Side {{ $node['side'] }}</span>
+                                @if(!empty($node['ip_address']))
+                                    <span class="text-[9px] font-mono font-medium text-slate-500 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded leading-none" title="Edge PC IP: {{ $node['ip_address'] }}">{{ $node['ip_address'] }}</span>
+                                @endif
                                 <!-- Backup Indicator Icon (Hidden by Default) -->
                                 <svg id="backup-indicator-{{ $node['line'] }}-{{ $node['side'] }}" class="backup-indicator hidden w-4 h-4 cursor-help transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path>

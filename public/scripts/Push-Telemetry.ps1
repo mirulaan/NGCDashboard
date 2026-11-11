@@ -21,9 +21,20 @@ if (Test-Path "D:\Acer-File") {
         # Replace whatever the last number is with .2 (e.g., 172.16.50.150 -> 172.16.50.2)
         $ipAddress = $pcIp -replace '\.\d+$', '.2'
     } else {
-        Write-Host "ERROR: Could not determine target IP address. No 172.16.x.x network found." -ForegroundColor Red
-        Pause
-        Exit
+        # Fallback to WMI if Get-NetIPAddress is unavailable
+        $wmiIps = Get-CimInstance Win32_NetworkAdapterConfiguration -ErrorAction SilentlyContinue |
+            Where-Object { $_.IPEnabled -and $_.IPAddress } |
+            ForEach-Object { $_.IPAddress } |
+            Where-Object { $_ -match "^172\.16\." -and $_ -notmatch "\.255$" }
+
+        if ($wmiIps) {
+            $pcIp = [string]($wmiIps | Select-Object -First 1)
+            $ipAddress = $pcIp -replace '\.\d+$', '.2'
+        } else {
+            Write-Host "ERROR: Could not determine target IP address. No 172.16.x.x network found." -ForegroundColor Red
+            Pause
+            Exit
+        }
     }
 }
 $apiUrl = "http://$ipAddress/api/system-status"

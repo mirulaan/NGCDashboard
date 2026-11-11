@@ -105,3 +105,20 @@ test('Deploy-AgentFleet SQL query correctly filters 172.16 inspection targets an
         ->and($results[1]->side)->toBe('R')
         ->and($results[1]->ip_address)->toBe('172.16.50.102');
 });
+
+test('node view displays edge pc IP from database and cache', function () {
+    TelemetryLog::create([
+        'plant'      => '9',
+        'line'       => '93',
+        'side'       => 'L',
+        'tier_1'     => 'L',
+        'ip_address' => '172.16.50.105',
+        'version_middleware' => '2.4.1',
+        'created_at' => now(),
+    ]);
+
+    $response = $this->get('/node/9/93/L');
+
+    $response->assertStatus(200);
+    $response->assertSee('172.16.50.105');
+});

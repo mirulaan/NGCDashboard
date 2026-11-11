@@ -75,6 +75,7 @@ class DashboardController extends Controller
                     'side'   => $side,
                     'status' => $isOnline, 
                     'data'   => $nodeData, 
+                    'ip_address' => $latestLog?->ip_address,
                 ];
             }
         }
@@ -121,7 +122,8 @@ class DashboardController extends Controller
         
         $key = "{$plant}-{$line}-{$side}";
 
-        $clientIp = $validated['IpAddress'] ?? $request->ip();
+        $clientIp = !empty($validated['IpAddress']) ? $validated['IpAddress'] : $request->ip();
+        $validated['IpAddress'] = $clientIp;
         $agentVersion = $validated['Agent']['Version'] ?? $request->input('Agent.Version') ?? null;
 
         // Save telemetry data to database
@@ -201,6 +203,9 @@ class DashboardController extends Controller
         $latestRecord = $history->first();
         if (isset($matrix[$key])) {
             $data = $matrix[$key];
+            if (empty($data['IpAddress']) && $latestRecord && !empty($latestRecord->ip_address)) {
+                $data['IpAddress'] = $latestRecord->ip_address;
+            }
         } elseif ($latestRecord) {
             $ssdArray = [];
             foreach ($latestRecord->ssdLogs as $ssd) {
@@ -219,6 +224,7 @@ class DashboardController extends Controller
                 'Line' => $latestRecord->line,
                 'Tier 1' => $latestRecord->tier_1 ?? '-',
                 'Tier 2' => $latestRecord->tier_2 ?? '-',
+                'IpAddress' => $latestRecord->ip_address,
                 'Version' => [
                     'solw' => $latestRecord->version_solw,
                     'MiddleWare' => $latestRecord->version_middleware,
@@ -252,6 +258,7 @@ class DashboardController extends Controller
                 'Line' => $line,
                 'Tier 1' => '-',
                 'Tier 2' => '-',
+                'IpAddress' => null,
                 'Version' => [],
                 'Config Model' => [],
                 'SSD_Status' => []

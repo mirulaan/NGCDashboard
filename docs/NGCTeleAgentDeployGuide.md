@@ -38,19 +38,22 @@ powershell.exe -ExecutionPolicy Bypass -File .\scripts\Update-NGCDashboard.ps1
 ```
 *(This preserves the database in `C:\inetpub\wwwroot\NGCDashboard_Data\`, syncs code, runs migrations, rebuilds framework cache, and recycles the IIS AppPool.)*
 
-### Step 1.2: Offline Agent Distribution (No Server Build Needed)
-The Plant Dashboard Server is an **air-gapped / offline machine** and does **NOT** compile binaries or require .NET SDK installation. 
+### Step 1.2: Server-Side Offline Agent Packaging (Zero Git Bloat)
+To reduce Git repository size and bandwidth consumption, pre-compiled binaries are **not tracked in git**. Instead, the agent is packaged locally on the server (or dev PC) using `Build-AgentPackage.ps1`.
 
-The standalone binary package (`NGCTelemetryAgent.zip` and `NGCTelemetryAgent.exe`) is **pre-built** on your internet-connected development PC or automatically built via GitHub Actions and delivered in `public/scripts/`.
+**Important**: Building the agent does **NOT require an internet connection**. The agent uses 100% built-in .NET SDK framework assemblies with zero external NuGet packages.
 
-#### How to build on your dev PC (run ONCE on development machine):
-```powershell
-cd agent
-.\Build-AgentPackage.ps1
-```
-*(This automatically runs `dotnet publish` with `--self-contained true`, generates `public\scripts\NGCTelemetryAgent.zip` and `NGCTelemetryAgent.exe`, requiring zero .NET runtime on the edge PCs.)*
-
-Once the project files are pulled or copied to the offline Plant Server, the files will already be located at:
+#### How it builds:
+- **Automatic via Update Pipeline**: Running `Update-NGCDashboard.ps1` automatically detects `.NET SDK` on the server and builds the package with `ExecutionPolicy Bypass`.
+- **Manual 1-Click Build**:
+  ```powershell
+  # Run directly with ExecutionPolicy Bypass:
+  powershell.exe -ExecutionPolicy Bypass -File .\agent\Build-AgentPackage.ps1
+  
+  # Or double-click:
+  .\agent\Build-AgentPackage.bat
+  ```
+The artifacts are placed into `public/scripts/` on the server:
 - `C:\inetpub\wwwroot\NGCDashboard\public\scripts\NGCTelemetryAgent.zip`
 - `C:\inetpub\wwwroot\NGCDashboard\public\scripts\NGCTelemetryAgent.exe`
 

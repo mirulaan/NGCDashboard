@@ -32,6 +32,7 @@
 
     @php
         $isSynced = isset($data['Tier 1']) && $data['Tier 1'] !== '-';
+        $nodeIp = !empty($data['IpAddress']) ? $data['IpAddress'] : ($history->first()?->ip_address ?? '-');
         
         // SKU Mode Logic
         $skuMode = $data['Config Model']['SkuMode'] ?? null;
@@ -77,6 +78,10 @@
                                 <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span> OFFLINE
                             </span>
                         @endif
+                        <span class="ml-2 flex items-center gap-1.5 text-[10px] font-mono font-bold text-slate-700 bg-white px-2.5 py-1 rounded-md border border-slate-200 shadow-sm" title="Edge PC IP Address">
+                            <span class="w-1.5 h-1.5 rounded-full {{ $nodeIp !== '-' ? 'bg-indigo-500' : 'bg-slate-400' }}"></span>
+                            IP: <span class="text-indigo-600 select-all">{{ $nodeIp }}</span>
+                        </span>
                     </nav>
                     <div>
                         <h2 class="text-2xl font-extrabold text-slate-900 tracking-tight leading-none">Plant {{ $plant }} <span class="text-slate-400 font-light">| Line {{ $line }} | Side {{ $side }}</span></h2>
@@ -136,6 +141,10 @@
                             </div>
                             @endif
 
+                            <div class="flex items-center justify-between border-b border-slate-50 pb-1">
+                                <span class="font-medium text-slate-500">IP Address</span>
+                                <span class="font-mono font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded select-all">{{ $nodeIp }}</span>
+                            </div>
                             <div class="flex items-center justify-between border-b border-slate-50 pb-1">
                                 <span class="font-medium text-slate-500">Tier 1 / 2 Target</span>
                                 <span class="font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">{{ $data['Tier 1'] ?? '-' }} / {{ $data['Tier 2'] ?? '-' }}</span>
@@ -334,6 +343,7 @@
                             <thead class="bg-slate-50 text-slate-500 sticky top-0 z-10 shadow-sm">
                                 <tr>
                                     <th class="px-3 py-2 font-bold uppercase tracking-wider text-[8px] bg-slate-50 border-b border-slate-200">Time</th>
+                                    <th class="px-3 py-2 font-bold uppercase tracking-wider text-[8px] bg-slate-50 border-b border-slate-200">IP Address</th>
                                     <th class="px-3 py-2 font-bold uppercase tracking-wider text-[8px] bg-slate-50 border-b border-slate-200">MW Ver</th>
                                 </tr>
                             </thead>
@@ -341,10 +351,11 @@
                                 @forelse($history->take(15) as $log)
                                     <tr class="hover:bg-slate-50/80">
                                         <td class="px-3 py-1.5 font-mono text-slate-500">{{ $log->created_at->format('m-d H:i') }}</td>
+                                        <td class="px-3 py-1.5 font-mono text-[9px] text-slate-600">{{ $log->ip_address ?? '-' }}</td>
                                         <td class="px-3 py-1.5"><span class="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-[9px] font-mono">{{ $log->version_middleware ?? 'Unknown' }}</span></td>
                                     </tr>
                                 @empty
-                                    <tr><td colspan="2" class="px-3 py-4 text-center text-slate-400 text-[10px]">No data.</td></tr>
+                                    <tr><td colspan="3" class="px-3 py-4 text-center text-slate-400 text-[10px]">No data.</td></tr>
                                 @endforelse
                             </tbody>
                         </table>
