@@ -20,13 +20,24 @@
 #>
 [CmdletBinding()]
 param (
-    [string]$Source = (Resolve-Path "$PSScriptRoot\..").Path,
+    [string]$Source = $(
+        if ($PSScriptRoot) {
+            (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+        } else {
+            (Get-Location).Path
+        }
+    ),
     [string]$Destination = "C:\inetpub\wwwroot\NGCDashboard",
     [string]$DataPath = "C:\inetpub\wwwroot\NGCDashboard_Data",
     [string]$AppPoolName = "NGCDashboard"
 )
 
 $ErrorActionPreference = "Stop"
+
+# Safety verification of Source directory
+if (-not (Test-Path (Join-Path $Source "artisan"))) {
+    throw "Source directory '$Source' is invalid: artisan file not found. Ensure you specify -Source or run from project root."
+}
 
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "   NGC Dashboard - Production Deployment & State Decoupling " -ForegroundColor Cyan
@@ -47,7 +58,7 @@ if (-not (Test-Path $DataPath)) {
 }
 
 Write-Host "    Configuring IIS read/write ACLs on $DataPath..." -ForegroundColor Yellow
-icacls $DataPath /grant "IIS_IUSRS:(OI)(CI)M" /grant "IUSR:(OI)(CI)M" | Out-Null
+icacls $DataPath /grant "IIS_IUSRS:(OI)(CI)F" /grant "IUSR:(OI)(CI)F" /grant "IIS AppPool\${AppPoolName}:(OI)(CI)F" /T | Out-Null
 
 # Step 2: Seed / migrate database if target database doesn't exist
 $targetDb = Join-Path $DataPath "database.sqlite"
@@ -99,6 +110,12 @@ if ($envContent -match "(?m)^DB_DATABASE=.*") {
 } else {
     $envContent = $envContent -replace "(?m)^DB_CONNECTION=sqlite", "DB_CONNECTION=sqlite`r`nDB_DATABASE=$formattedDbPath"
 }
+
+# Ensure TELEMETRY_PLANT configuration is present
+if ($envContent -notmatch "(?m)^TELEMETRY_PLANT=") {
+    $envContent += "`r`n# Plant Topology: 'auto' (detect from DB telemetry/hostname/subnet) or fixed '7', '8', '9'`r`nTELEMETRY_PLANT=auto`r`n"
+}
+
 Set-Content -Path $destEnv -Value $envContent -NoNewline
 Write-Host "    Environment configured: DB_DATABASE=$formattedDbPath" -ForegroundColor Green
 

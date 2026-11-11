@@ -8,11 +8,15 @@ use App\Models\TelemetryLog;
 
 class DashboardController extends Controller
 {
-    public function fleet()
+    public function fleet(Request $request)
     {
-        $plant = config('telemetry.plant'); 
-        $lines = config('telemetry.lines');
-        $sides = config('telemetry.sides');
+        $plantInfo = \App\Services\PlantService::resolve($request);
+        $plant = $plantInfo['plant']; 
+        $lines = $plantInfo['lines'];
+        $sides = $plantInfo['sides'];
+        $allPlants = $plantInfo['all_plants'];
+        $plantSource = $plantInfo['source'];
+        $isAuto = $plantInfo['is_auto'];
 
         $cachedData = Cache::get('plant_matrix', []);
         $grid = [];
@@ -75,7 +79,7 @@ class DashboardController extends Controller
             }
         }
 
-        return view('fleet', compact('grid', 'plant'));
+        return view('fleet', compact('grid', 'plant', 'lines', 'sides', 'allPlants', 'plantInfo', 'plantSource', 'isAuto'));
     }
 
     // Updated webhook to sort into the correct line/side bucket

@@ -59,7 +59,7 @@
             <header class="flex justify-between items-end flex-none">
                 <div class="flex flex-col gap-1.5">
                     <nav class="flex items-center gap-2 text-xs font-semibold">
-                        <a href="{{ route('fleet') }}" class="text-slate-400 hover:text-indigo-600 transition-colors flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-md border border-slate-200 shadow-sm">
+                        <a href="{{ route('fleet', ['plant' => $plant]) }}" class="text-slate-400 hover:text-indigo-600 transition-colors flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-md border border-slate-200 shadow-sm">
                             <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
                             Fleet Dashboard
                         </a>

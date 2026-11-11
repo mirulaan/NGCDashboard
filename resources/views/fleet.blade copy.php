@@ -29,7 +29,7 @@
                     </div>
                     <h1 class="text-2xl font-extrabold text-slate-900 tracking-tight">Plant {{ $plant }} Fleet Status</h1>
                 </div>
-                <p class="text-slate-500 text-sm font-medium ml-11">Monitoring {{ count(config('telemetry.lines')) }} Lines • Dual-Side Topologies</p>
+                <p class="text-slate-500 text-sm font-medium ml-11">Monitoring {{ count($lines ?? config('telemetry.lines', [])) }} Lines • Dual-Side Topologies</p>
             </div>
             
             <div class="flex items-center gap-4 text-xs font-semibold bg-white p-2 rounded-xl shadow-sm border border-slate-200">

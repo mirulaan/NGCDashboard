@@ -32,11 +32,38 @@
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
                     </div>
                     <h1 class="text-2xl font-extrabold text-slate-900 tracking-tight">Plant {{ $plant }} Fleet Status</h1>
+                    
+                    <!-- Detection Badge -->
+                    <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold {{ $isAuto ? 'bg-cyan-50 text-cyan-700 border border-cyan-200' : 'bg-slate-100 text-slate-700 border border-slate-200' }}" title="{{ $plantSource }}">
+                        <span class="w-1.5 h-1.5 rounded-full {{ $isAuto ? 'bg-cyan-500 animate-pulse' : 'bg-indigo-500' }}"></span>
+                        {{ $isAuto ? 'Auto-Detected' : 'Manual' }}
+                    </span>
                 </div>
-                <p class="text-slate-500 text-sm font-medium ml-11">Monitoring {{ count(config('telemetry.lines', [])) }} Lines • Dual-Side Topologies</p>
+                <div class="flex items-center gap-3 ml-11">
+                    <p class="text-slate-500 text-sm font-medium">Monitoring {{ count($lines) }} Lines • Dual-Side Topologies</p>
+                    <span class="text-slate-300 text-xs">•</span>
+                    <span class="text-xs text-slate-400" title="{{ $plantSource }}">{{ $plantSource }}</span>
+                </div>
             </div>
             
             <div class="flex flex-wrap items-center gap-3">
+                
+                <!-- Plant Selector -->
+                <div class="flex items-center bg-white p-1 rounded-xl shadow-sm border border-slate-200 text-xs font-bold text-slate-600">
+                    <span class="px-2 text-slate-400 uppercase tracking-wider text-[10px]">Plant:</span>
+                    @foreach($allPlants as $pId => $pData)
+                        <a href="{{ route('fleet', ['plant' => $pId]) }}" 
+                           class="px-2.5 py-1 rounded-lg transition-colors {{ $plant === (string)$pId && !$isAuto ? 'bg-indigo-600 text-white shadow-xs' : ($plant === (string)$pId && $isAuto ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50') }}"
+                           title="Switch to {{ $pData['name'] }}">
+                            {{ $pId }}
+                        </a>
+                    @endforeach
+                    <a href="{{ route('fleet', ['plant' => 'auto']) }}" 
+                       class="px-2 py-1 ml-1 rounded-lg text-[10px] transition-colors {{ $isAuto ? 'bg-cyan-600 text-white shadow-xs font-extrabold' : 'text-slate-400 hover:text-slate-700 hover:bg-slate-50' }}"
+                       title="Auto-detect based on incoming telemetry and server location">
+                        AUTO
+                    </a>
+                </div>
                 
                 <!-- Sync Backups Button -->
                 <button id="btn-refresh-fleet-backups" onclick="fetchFleetBackups()" class="flex items-center gap-1.5 bg-white p-2 px-3 rounded-xl shadow-sm border border-slate-200 text-xs font-bold text-slate-700 hover:text-indigo-600 transition-colors" title="Check SFTP Backup Status">

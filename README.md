@@ -245,45 +245,48 @@ php artisan queue:work --tries=3 --timeout=90
 
 ---
 
-## Plant Topology Configuration
+## Plant Topology & Auto-Detection Configuration
 
-The dashboard determines which plant and line range to display using `config/telemetry.php`.
+The dashboard automatically determines which plant and line topology to display without requiring code edits or commenting out blocks.
 
-Edit `config/telemetry.php` to switch active plants:
+### 1. Automatic Plant Detection (Default)
 
-```php
-<?php
+By default, the server runs in **auto-detection mode** (`TELEMETRY_PLANT=auto` in `.env`). It dynamically detects the manufacturing plant based on:
 
-// Plant 7 Configuration:
-/*
-return [
-    'plant' => '7',
-    'lines' => range(73, 78),
-    'sides' => ['L', 'R'],
-];
-*/
+1. **Incoming Telemetry Activity**: Checks the SQLite/MySQL database (`telemetry_logs`) for the plant actively logging data from edge PCs (most frequent in the last 7 days or latest received record).
+2. **Server Hostname**: Detects plant patterns in the Windows computer name (e.g., `Plant7`, `P8`, `Plant-9`).
+3. **Network IPv4 Subnet**: Matches the server's local IP address against known plant subnets configured in `config/telemetry.php`.
+4. **Fallback**: Gracefully falls back to Plant 9 if no signals are found on a fresh server.
 
-// Plant 8 Configuration:
-/*
-return [
-    'plant' => '8',
-    'lines' => array_merge(range(83, 92), [105]),
-    'sides' => ['L', 'R'],
-];
-*/
+### 2. Manual Environment Override (`.env`)
 
-// Plant 9 Configuration:
-return [
-    'plant' => '9',
-    'lines' => range(93, 104),
-    'sides' => ['L', 'R'],
-];
+To lock a plant server permanently to a specific plant without auto-detection, set `TELEMETRY_PLANT` in `.env`:
+
+```ini
+# Auto-detect (default):
+TELEMETRY_PLANT=auto
+
+# Or explicitly lock to a plant:
+# TELEMETRY_PLANT=7   # Lines 73-78
+# TELEMETRY_PLANT=8   # Lines 83-92, 105
+# TELEMETRY_PLANT=9   # Lines 93-104
 ```
 
-After modifying this file in production, clear the configuration cache:
-```bash
-php artisan config:clear
-```
+Because `.env` is stateful and preserved across automated deployments (`Update-NGCDashboard.ps1`), this setting will never be overwritten.
+
+### 3. Interactive Web Plant Switcher
+
+Technicians and operators can also inspect different plants on the fly:
+* Click **7**, **8**, or **9** in the dashboard header to instantly view that plant's lines.
+* Click **AUTO** to return to automatic detection mode.
+
+### 4. Plant Topology Reference
+
+| Plant | Line Range | Sides | Total Inspection Nodes |
+| :--- | :--- | :--- | :--- |
+| **Plant 7** | Lines 73 – 78 | L / R | 12 nodes (6 lines × 2) |
+| **Plant 8** | Lines 83 – 92, 105 | L / R | 22 nodes (11 lines × 2) |
+| **Plant 9** | Lines 93 – 104 | L / R | 24 nodes (12 lines × 2) |
 
 ---
 
