@@ -11,6 +11,44 @@
 
 ## Progress & Change Log
 
+### [2026-11-11] - Windows Telemetry Agent Core, Zero-Touch Fleet Rollout & Daily Backup Consolidation
+
+#### 1. Zero-Touch Fleet Rollout Architecture (No PC-by-PC Manual Visits)
+- **Problem Addressed**: Solved the operational challenge of deploying the new agent across 50+ edge PCs across Plants 7, 8, and 9 without visiting machines 1 by 1.
+- **OTA Trojan Handover via Existing Task Scheduler**: Designed an automated upgrade path where the active `NGC_Telemetry_Push` task (which already runs every 5–15 minutes as `NT AUTHORITY\SYSTEM`) fetches `Bootstrap-NGCAgent.ps1`, downloads the agent package, installs it, and silently transfers ownership.
+- **Centralized Fleet Orchestrator (`scripts/Deploy-AgentFleet.ps1`)**: Built a server-side PowerShell orchestrator that queries all active edge IP addresses from `telemetry_logs`, connects across the local subnet via SMB/Admin share or WMI/WinRM, pushes the agent, and verifies rollout in parallel.
+- **Automated Task Scheduler Retirement**: On startup or install, the agent automatically deletes the legacy scheduled tasks `NGC_Telemetry_Push` and `Daily_Plant_Backup` via `schtasks.exe /Delete /TN ... /F`, and terminates leftover `HWiNFO64.exe` processes.
+
+#### 2. Native Daily Plant Backup Consolidation
+- **Legacy Script Integration**: Consolidated all functionality of `scripts/DailyBackup.ps1` natively into `NGCTelemetryAgent.Services.DailyBackupService`.
+- **E-Core CPU Throttling**: Protects 24/7 live AI camera inspection models (`Accusys HAIVIs`) by lowering process priority to `ProcessPriorityClass.Idle` and pinning compression affinity to Core 0 (`(IntPtr)1`) during zip creation.
+- **Directory Staging & Exclusion**: Replicated Robocopy staging of `C:\Accusys` (strictly excluding `HAIVIs\log` to save 10–30 GB of redundant logs), `C:\Hardware`, `C:\Program1`, and `C:\inetpub\wwwroot\NGCDashboard`.
+- **SFTP Transport Engine**: Automates archive generation (`{Line}{TierPrefix}.zip`) and upload to `172.16.207.14:22` (`/BACKUP/Plant_{Plant}/`) with automatic cleanup.
+- **Live Telemetry Backup Health**: Directly injects `Backup_Status` (`LastBackupTime`, `Status`, `ZipSizeMB`, `DurationSeconds`, `RemotePath`, `ErrorMessage`) into the telemetry payload sent to `POST /api/system-status`, enabling web dashboard visibility and eliminating silent backup failures.
+- **On-Demand & Scheduled Triggers**: Configured daily cron runner (02:00 AM) and interactive "Run Daily Backup Now" button in the Windows System Tray menu.
+
+#### 3. Core C# .NET 8 Agent Implementation (`agent/NGCTelemetryAgent`)
+- **Modern .NET 8 LTS WinForms Architecture**: Built with native BCL standard libraries (0 external nuget dependencies for zero supply-chain risk and offline readiness).
+- **Domain Models**:
+  - `AgentConfig.cs`: Persisted JSON settings (`config.json`) for server URL, push interval, backup schedule, and SFTP credentials.
+  - `BackupStatus.cs`: Comprehensive backup execution telemetry model.
+  - `TelemetryPayload.cs`: Complete schema matching `POST /api/system-status`.
+- **Engine Services**:
+  - `TelemetryCollectorService.cs`: Gathers `PC_Info.xml`, `HAIVIs` model configs, file versions (`MiddleWare`, `DIMR`, `IOC.bas`, `*.solw`), disk health, and GPU metrics via `nvidia-smi`.
+  - `DailyBackupService.cs`: Thread-safe backup execution with CPU throttling and SFTP transfer.
+  - `TelemetryDispatcherService.cs`: Resilient HTTP client with retry loops and automatic failure logging.
+  - `TaskSchedulerManager.cs`: Handles `--install` auto-start registration and legacy task decommissioning.
+  - `TrayApplicationContext.cs`: Windows System Tray (`NotifyIcon`) with live status indicators, force push, and backup triggers.
+
+#### 4. Architecture Plan & Documentation Update (`PLAN.md`)
+- Overhauled `PLAN.md` with:
+  - Detailed Zero-Touch Fleet Rollout Strategy (Methods A & B).
+  - Complete Daily Plant Backup Subsystem specification and throttling parameters.
+  - Consolidated dual-layer process architecture.
+  - Enriched API contract and database migration schema for backup tracking.
+
+---
+
 ### [2026-11-11] - State Decoupling & Automated IIS Deployment Pipeline
 
 #### 1. Stateful Database Decoupling
