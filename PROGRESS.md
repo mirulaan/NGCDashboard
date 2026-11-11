@@ -11,6 +11,29 @@
 
 ## Progress & Change Log
 
+### [2026-11-11] - State Decoupling & Automated IIS Deployment Pipeline
+
+#### 1. Stateful Database Decoupling
+- **Decoupled Architecture**: Separated the persistent SQLite database from the stateless application codebase by relocating the database to `C:\inetpub\wwwroot\NGCDashboard_Data\database.sqlite`.
+- **Zero Data Loss Migration**: Successfully migrated the live 48.7 MB plant database (containing all telemetry logs, SSD logs, and user tables) to `C:\inetpub\wwwroot\NGCDashboard_Data`.
+- **IIS Security & Access Control**: Configured directory ACLs with `icacls "C:\inetpub\wwwroot\NGCDashboard_Data" /grant "IIS_IUSRS:(OI)(CI)M" /grant "IUSR:(OI)(CI)M"` to guarantee write-ahead logging (`-wal` and `-shm`) permissions for IIS worker processes.
+
+#### 2. Environment Configuration
+- Updated `C:\inetpub\wwwroot\NGCDashboard\.env` with `DB_DATABASE=C:/inetpub/wwwroot/NGCDashboard_Data/database.sqlite`.
+- Updated `.env.example` in the repository so all future clones and plant setups default to the external data directory pattern.
+
+#### 3. Automated Safe Deployment Script (`scripts/Update-NGCDashboard.ps1`)
+- **Automated Directory Provisioning**: Detects if `NGCDashboard_Data` exists upon deployment; if absent, automatically creates it and assigns the necessary IIS ACLs.
+- **Initial Database Seeding/Migration**: Automatically migrates any legacy database from the project root or seeds a new database if the persistent folder is empty.
+- **Stateless Robocopy Synchronization**: Synchronizes project code while strictly preserving `.env`, `*.sqlite*`, `storage/`, `.git/`, and `node_modules/`.
+- **Zero-Downtime Maintenance Flow**: Wraps deployments in `php artisan down` / `php artisan up`, executes `php artisan migrate --force`, re-optimizes framework caches (`optimize:clear`, `optimize`), and automatically recycles the IIS Application Pool (`NGCDashboard`).
+- **End-to-End Validation**: Executed script end-to-end; verified database connectivity via `php artisan db:show` and confirmed all migrations remain intact.
+
+#### 4. Documentation
+- Updated `docs/DATABASE_DEPLOYMENT_PLAN.md` and added root `DATABASE_DEPLOYMENT_PLAN.md` with actual production paths (`C:\inetpub\wwwroot\NGCDashboard` and `C:\inetpub\wwwroot\NGCDashboard_Data`), permissions commands, and deployment instructions.
+
+---
+
 ### [2026-11-10] - IIS Server Setup & Deployment Readiness
 
 #### 1. Runtime Environment & PHP Extensions

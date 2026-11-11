@@ -15,9 +15,9 @@ Keeping `database.sqlite` and `.env` inside the project root (`database/database
 ## 2. Architecture: Separation of Code and State
 
 ```
-D:\ (or Plant PC Drive)
-├── NGCDashboard_Data\                 <-- STATEFUL DATA (Never overwritten during updates)
-│   ├── database.sqlite                <-- Persistent SQLite database
+C:\inetpub\wwwroot\
+├── NGCDashboard_Data\                 <-- STATEFUL DATA (Created if missing; never overwritten during updates)
+│   ├── database.sqlite                <-- Persistent SQLite database (Plant telemetry & records)
 │   ├── database.sqlite-wal            <-- Dynamic write-ahead log
 │   └── database.sqlite-shm            <-- Dynamic shared-memory file
 │
@@ -35,17 +35,23 @@ D:\ (or Plant PC Drive)
 ## 3. Configuration & Permissions
 
 ### 3.1 Environment Configuration (`.env`)
-Point the database connection to the external path using forward slashes (`/`):
+Point the database connection to the external persistent path using forward slashes (`/`):
 ```ini
 DB_CONNECTION=sqlite
-DB_DATABASE=D:/NGCDashboard_Data/database.sqlite
+DB_DATABASE=C:/inetpub/wwwroot/NGCDashboard_Data/database.sqlite
 ```
 *Note: Using forward slashes prevents backslash escape issues across PHP and Windows path parsers.*
 
 ### 3.2 File System & IIS Permissions
-SQLite creates temporary journal/lock files (`-wal` and `-shm`) in the same directory as the database file. IIS worker processes must have **Modify (M)** permissions on the parent directory:
+SQLite creates temporary journal/lock files (`-wal` and `-shm`) in the same directory as the database file. When deploying, `C:\inetpub\wwwroot\NGCDashboard_Data` may not exist yet, so it must be created, and the IIS worker process identity must be granted **Modify (M)** permissions on the folder:
 ```powershell
-icacls "D:\NGCDashboard_Data" /grant "IIS_IUSRS:(OI)(CI)M" /grant "IUSR:(OI)(CI)M"
+# 1. Create directory if it does not exist
+if (-not (Test-Path "C:\inetpub\wwwroot\NGCDashboard_Data")) {
+    New-Item -ItemType Directory -Force -Path "C:\inetpub\wwwroot\NGCDashboard_Data"
+}
+
+# 2. Grant IIS modify permissions
+icacls "C:\inetpub\wwwroot\NGCDashboard_Data" /grant "IIS_IUSRS:(OI)(CI)M" /grant "IUSR:(OI)(CI)M"
 ```
 
 ---
@@ -54,24 +60,35 @@ icacls "D:\NGCDashboard_Data" /grant "IIS_IUSRS:(OI)(CI)M" /grant "IUSR:(OI)(CI)
 
 To migrate an existing SQLite database without losing any historical data:
 
-1. **Create the external data folder**:
+1. **Create the external data folder (if not already created)**:
    ```powershell
-   New-Item -ItemType Directory -Force -Path "D:\NGCDashboard_Data"
+   if (-not (Test-Path "C:\inetpub\wwwroot\NGCDashboard_Data")) {
+       New-Item -ItemType Directory -Force -Path "C:\inetpub\wwwroot\NGCDashboard_Data"
+   }
    ```
 
-2. **Copy the existing database file**:
+2. **Grant IIS permissions**:
    ```powershell
-   Copy-Item "D:\Acer-File\Training\VibeCode\NGCDashboard\database\database.sqlite" -Destination "D:\NGCDashboard_Data\database.sqlite"
+   icacls "C:\inetpub\wwwroot\NGCDashboard_Data" /grant "IIS_IUSRS:(OI)(CI)M" /grant "IUSR:(OI)(CI)M"
    ```
 
-3. **Update `.env`**:
-   Set `DB_DATABASE=D:/NGCDashboard_Data/database.sqlite`.
-
-4. **Verify connection and data integrity**:
+3. **Migrate existing database file**:
    ```powershell
+   if ((Test-Path "C:\inetpub\wwwroot\NGCDashboard\database\database.sqlite") -and -not (Test-Path "C:\inetpub\wwwroot\NGCDashboard_Data\database.sqlite")) {
+       Copy-Item "C:\inetpub\wwwroot\NGCDashboard\database\database.sqlite" -Destination "C:\inetpub\wwwroot\NGCDashboard_Data\database.sqlite" -Force
+   }
+   ```
+
+4. **Update `.env` in `C:\inetpub\wwwroot\NGCDashboard`**:
+   Set `DB_DATABASE=C:/inetpub/wwwroot/NGCDashboard_Data/database.sqlite`.
+
+5. **Verify connection and data integrity**:
+   ```powershell
+   Set-Location "C:\inetpub\wwwroot\NGCDashboard"
    php artisan migrate:status
+   php artisan db:show
    ```
-   *Expected result: All existing migrations show as `[Ran]`, confirming all tables and rows are preserved.*
+   *Expected result: Database shows connected to `C:/inetpub/wwwroot/NGCDashboard_Data/database.sqlite` and all migrations show `[Ran]`.*
 
 ---
 
@@ -87,40 +104,76 @@ To migrate an existing SQLite database without losing any historical data:
 | `php artisan migrate:fresh` | Drops all tables and rebuilds schemas | ❌ **DANGEROUS** (Wipes all data) |
 | `php artisan migrate:refresh` | Rolls back all migrations and re-runs | ❌ **DANGEROUS** (Wipes all data) |
 
-### 5.2 Automated Update Script (`Update-NGCDashboard.ps1`)
+### 5.2 Automated Update Script (`scripts/Update-NGCDashboard.ps1`)
 
-To update plant PCs safely without manual drag-and-drop errors, run this script from a USB drive or deploy bundle:
+To update plant PCs safely without manual drag-and-drop errors, run the automated script (`scripts/Update-NGCDashboard.ps1`):
 
 ```powershell
 <#
 .SYNOPSIS
-    Automated, safe deployment script for NGC Dashboard on Plant PCs.
+    Automated, safe deployment script for NGC Dashboard on Windows IIS Plant Hosts.
 .DESCRIPTION
-    Replaces application code while preserving the external database, local .env, and storage directory.
+    Deploys or updates the stateless application code into IIS wwwroot, creates and secures
+    the persistent external database directory if missing, and preserves machine-specific
+    configuration (.env), telemetry data (database.sqlite), and application storage.
 #>
 param (
-    [string]$Source = "D:\Release\NGCDashboard",
-    [string]$Destination = "D:\NGCDashboard"
+    [string]$Source = "D:\Acer-File\Training\VibeCode\NGCDashboard",
+    [string]$Destination = "C:\inetpub\wwwroot\NGCDashboard",
+    [string]$DataPath = "C:\inetpub\wwwroot\NGCDashboard_Data",
+    [string]$AppPoolName = "NGCDashboard"
 )
 
-Write-Host ">>> [1/5] Enabling maintenance mode..." -ForegroundColor Yellow
+# 1. Create persistent data directory if missing & assign IIS permissions
+if (-not (Test-Path $DataPath)) {
+    New-Item -ItemType Directory -Force -Path $DataPath
+}
+icacls $DataPath /grant "IIS_IUSRS:(OI)(CI)M" /grant "IUSR:(OI)(CI)M"
+
+# 2. Seed / migrate database if target doesn't exist
+$targetDb = Join-Path $DataPath "database.sqlite"
+$destDb = Join-Path $Destination "database\database.sqlite"
+if (-not (Test-Path $targetDb) -and (Test-Path $destDb)) {
+    Copy-Item $destDb -Destination $targetDb -Force
+}
+
+# 3. Configure .env in destination
+$destEnv = Join-Path $Destination ".env"
+$formattedDbPath = ($targetDb -replace '\\', '/')
+if (Test-Path $destEnv) {
+    $envContent = Get-Content $destEnv -Raw
+    if ($envContent -match "(?m)^DB_DATABASE=.*") {
+        $envContent = $envContent -replace "(?m)^DB_DATABASE=.*", "DB_DATABASE=$formattedDbPath"
+    } else {
+        $envContent = $envContent -replace "(?m)^DB_CONNECTION=sqlite", "DB_CONNECTION=sqlite`r`nDB_DATABASE=$formattedDbPath"
+    }
+    Set-Content -Path $destEnv -Value $envContent -NoNewline
+}
+
+# 4. Maintenance mode
 Set-Location $Destination
-php artisan down
+php artisan down --retry=60
 
-Write-Host ">>> [2/5] Copying code files (Excluding .env, databases, storage)..." -ForegroundColor Cyan
-robocopy $Source $Destination /E /XF ".env" "*.sqlite" /XD "storage" ".git" "node_modules"
+# 5. Robocopy stateless application code
+$robocopyArgs = @(
+    $Source,
+    $Destination,
+    "/E",
+    "/XF", ".env", "*.sqlite", "*.sqlite-wal", "*.sqlite-shm",
+    "/XD", "storage", ".git", "node_modules", "NGCDashboard_Data",
+    "/R:2", "/W:1", "/NP"
+)
+& robocopy.exe @robocopyArgs
+if ($LASTEXITCODE -ge 8) { throw "Robocopy error: $LASTEXITCODE" }
 
-Write-Host ">>> [3/5] Applying new database migrations..." -ForegroundColor Green
+# 6. Database migrations & cache optimization
 php artisan migrate --force
-
-Write-Host ">>> [4/5] Refreshing application caches..." -ForegroundColor Green
 php artisan optimize:clear
 php artisan optimize
 
-Write-Host ">>> [5/5] Bringing application back online..." -ForegroundColor Green
+# 7. Bring application back online & recycle IIS AppPool
 php artisan up
-
-Write-Host ">>> Deployment completed successfully with zero data loss!" -ForegroundColor Green
+Restart-WebAppPool -Name $AppPoolName -ErrorAction SilentlyContinue
 ```
 
 ---
