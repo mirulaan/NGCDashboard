@@ -38,17 +38,21 @@ powershell.exe -ExecutionPolicy Bypass -File .\scripts\Update-NGCDashboard.ps1
 ```
 *(This preserves the database in `C:\inetpub\wwwroot\NGCDashboard_Data\`, syncs code, runs migrations, rebuilds framework cache, and recycles the IIS AppPool.)*
 
-### Step 1.2: Build & Package the C# Agent for Distribution
-Publish the single-file agent binaries into the web server's `public/scripts/` directory:
+### Step 1.2: Offline Agent Distribution (No Server Build Needed)
+The Plant Dashboard Server is an **air-gapped / offline machine** and does **NOT** compile binaries or require .NET SDK installation. 
+
+The standalone binary package (`NGCTelemetryAgent.zip` and `NGCTelemetryAgent.exe`) is **pre-built** on your internet-connected development PC or automatically built via GitHub Actions and delivered in `public/scripts/`.
+
+#### How to build on your dev PC (run ONCE on development machine):
 ```powershell
-cd C:\inetpub\wwwroot\NGCDashboard\agent\NGCTelemetryAgent
-
-# 1. Compile release binaries
-dotnet publish -c Release -r win-x64 --self-contained false -o C:\inetpub\wwwroot\NGCDashboard\public\scripts\agent
-
-# 2. Compress into zip package for HTTP distribution
-Compress-Archive -Path C:\inetpub\wwwroot\NGCDashboard\public\scripts\agent\* -DestinationPath C:\inetpub\wwwroot\NGCDashboard\public\scripts\NGCTelemetryAgent.zip -Force
+cd agent
+.\Build-AgentPackage.ps1
 ```
+*(This automatically runs `dotnet publish` with `--self-contained true`, generates `public\scripts\NGCTelemetryAgent.zip` and `NGCTelemetryAgent.exe`, requiring zero .NET runtime on the edge PCs.)*
+
+Once the project files are pulled or copied to the offline Plant Server, the files will already be located at:
+- `C:\inetpub\wwwroot\NGCDashboard\public\scripts\NGCTelemetryAgent.zip`
+- `C:\inetpub\wwwroot\NGCDashboard\public\scripts\NGCTelemetryAgent.exe`
 
 ### Step 1.3: Verify Web Distribution Accessibility
 Test that the deployment artifacts are reachable over HTTP:

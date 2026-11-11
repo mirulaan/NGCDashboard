@@ -1,0 +1,51 @@
+name: Build & Package Windows C# Agent
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'agent/**'
+
+jobs:
+  build-agent:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build Standalone Windows Agent Package
+        shell: pwsh
+        run: |
+          ./agent/Build-AgentPackage.ps1
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: NGCTelemetryAgent-Windows-x64
+          path: |
+            public/scripts/NGCTelemetryAgent.zip
+            public/scripts/NGCTelemetryAgent.exe
+
+      - name: Commit Pre-Built Agent to Repository
+        shell: pwsh
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add public/scripts/NGCTelemetryAgent.zip public/scripts/NGCTelemetryAgent.exe
+          $status = git status --porcelain
+          if ($status) {
+            git commit -m "build: package standalone NGCTelemetryAgent for offline distribution [skip ci]"
+            git push origin main
+          } else {
+            Write-Host "No changes in binary package to commit."
+          }

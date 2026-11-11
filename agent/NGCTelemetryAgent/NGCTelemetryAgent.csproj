@@ -8,6 +8,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>NGCTelemetryAgent</RootNamespace>
     <AssemblyName>NGCTelemetryAgent</AssemblyName>
+
+    <!-- Standalone Zero-Dependency Single-File Packaging -->
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
   </PropertyGroup>
 
 </Project>
