@@ -11,7 +11,7 @@ public class AgentConfig
     public int PushIntervalSeconds { get; set; } = 300;
 
     [JsonPropertyName("BackupScheduleTime")]
-    public string BackupScheduleTime { get; set; } = "02:00:00";
+    public string BackupScheduleTime { get; set; } = "18:00:00"; // 6:00 PM daily
 
     [JsonPropertyName("SftpHost")]
     public string SftpHost { get; set; } = "172.16.207.14";

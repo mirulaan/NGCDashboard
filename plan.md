@@ -28,7 +28,7 @@ Edge PCs will **NOT** be touched individually. Because all 50+ edge PCs across P
 
 #### Concern 2: "Add Daily_Plant_Backup function to this agent"
 **Solution**: The agent natively integrates the full `Daily_Plant_Backup` routine:
-- Schedules automated daily archives at off-peak hours (default 02:00 AM or configurable).
+- Schedules automated daily archives at off-peak hours (default 6:00 PM / 18:00:00 or configurable).
 - Employs **E-Core / Idle CPU Priority Throttling** (Priority `Idle`, Affinity core 0) so compression never steals cycles from live AI vision models (`Accusys HAIVIs`).
 - Safely stages `C:\Accusys` (excluding `HAIVIs\log`), `C:\Hardware`, `C:\Program1`, and `C:\inetpub\wwwroot\NGCDashboard`.
 - Automatically uploads archives over SFTP to `172.16.207.14:22` (`/BACKUP/Plant_{Plant}/{Line}{TierPrefix}.zip`).
@@ -65,7 +65,7 @@ Edge PCs will **NOT** be touched individually. Because all 50+ edge PCs across P
 |             v                                                  v                  |
 |  +-----------------------+                         +---------------------------+  |
 |  | Telemetry Dispatcher  |                         | Daily Backup Subsystem    |  |
-|  | * 5-min polling loop  |                         | * 02:00 AM Daily Trigger  |  |
+|  | * 5-min polling loop  |                         | * 6:00 PM Daily Trigger   |  |
 |  | * NVMe/SATA SMART     |                         | * Robocopy staging        |  |
 |  | * CPU/GPU thermals    |                         | * E-Core / Idle throttled |  |
 |  | * HAIVIs/DIMR configs |                         | * SFTP to 172.16.207.14   |  |
@@ -128,7 +128,7 @@ The agent integrates the full functionality of `scripts\DailyBackup.ps1` to elim
 ### 4.1 Backup Specifications & Source Paths
 | Parameter | Configuration | Details |
 | :--- | :--- | :--- |
-| **Schedule** | Daily at `02:00:00` (Configurable) | Executes during shift handover / low line activity |
+| **Schedule** | Daily at `18:00:00` / 6:00 PM (Configurable) | Executes during shift handover / low line activity |
 | **Identity Source** | `C:\Hardware\PC_Info.xml` | Extracts Plant (`P_str`), Line (`L_str`), and Tier (`T1_str`) |
 | **Target Zip Name** | `{Line}{TierPrefix}.zip` | Example: Line `93`, Tier `L` -> `93L.zip` |
 | **SFTP Target Server** | `172.16.207.14:22` | User: `svc_otsftp`, Pass: `z#&A2#@VEAq&krt` |
@@ -196,7 +196,7 @@ The agent runs unobtrusively in the Windows System Tray with touch-friendly cont
 - **Telemetry Frequency**:
   - Interval options: `30s`, `1m`, `5m` (Default), `10m`, `15m`.
 - **Daily Backup Settings**:
-  - Scheduled time (Default: `02:00 AM`).
+  - Scheduled time (Default: `18:00:00` / 6:00 PM).
   - SFTP Server IP, Port, and User credentials.
   - Backup target directory preview (`/BACKUP/Plant_{P}/{L}{T}.zip`).
   - Staging directories list.

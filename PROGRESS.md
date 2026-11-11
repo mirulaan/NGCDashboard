@@ -25,7 +25,7 @@
 - **Directory Staging & Exclusion**: Replicated Robocopy staging of `C:\Accusys` (strictly excluding `HAIVIs\log` to save 10–30 GB of redundant logs), `C:\Hardware`, `C:\Program1`, and `C:\inetpub\wwwroot\NGCDashboard`.
 - **SFTP Transport Engine**: Automates archive generation (`{Line}{TierPrefix}.zip`) and upload to `172.16.207.14:22` (`/BACKUP/Plant_{Plant}/`) with automatic cleanup.
 - **Live Telemetry Backup Health**: Directly injects `Backup_Status` (`LastBackupTime`, `Status`, `ZipSizeMB`, `DurationSeconds`, `RemotePath`, `ErrorMessage`) into the telemetry payload sent to `POST /api/system-status`, enabling web dashboard visibility and eliminating silent backup failures.
-- **On-Demand & Scheduled Triggers**: Configured daily cron runner (02:00 AM) and interactive "Run Daily Backup Now" button in the Windows System Tray menu.
+- **On-Demand & Scheduled Triggers**: Configured daily cron runner (6:00 PM / 18:00:00) and interactive "Run Daily Backup Now" button in the Windows System Tray menu.
 
 #### 3. Core C# .NET 8 Agent Implementation (`agent/NGCTelemetryAgent`)
 - **Modern .NET 8 LTS WinForms Architecture**: Built with native BCL standard libraries (0 external nuget dependencies for zero supply-chain risk and offline readiness).

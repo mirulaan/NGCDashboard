@@ -100,7 +100,7 @@ if (-not (Test-Path $configPath)) {
     $defaultConfig = [ordered]@{
         ServerUrl = $apiUrl
         PushIntervalSeconds = 300
-        BackupScheduleTime = "02:00:00"
+        BackupScheduleTime = "18:00:00" # 6:00 PM daily
         SftpHost = "172.16.207.14"
         SftpPort = 22
         SftpUser = "svc_otsftp"
