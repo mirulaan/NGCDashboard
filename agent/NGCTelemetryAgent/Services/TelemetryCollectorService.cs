@@ -1,6 +1,9 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Xml;
+using Microsoft.Win32.SafeHandles;
 using NGCTelemetryAgent.Models;
 
 namespace NGCTelemetryAgent.Services;
@@ -174,37 +177,271 @@ public class TelemetryCollectorService
     private void ExtractStorageHealth(TelemetryPayload payload)
     {
         var drives = DriveInfo.GetDrives();
-        int diskNum = 0;
+        var smartctlPath = FindSmartctl();
+        var smartCache = new Dictionary<int, NvmeSmartInfo?>();
+        int fallbackDiskNum = 0;
 
         foreach (var d in drives.Where(d => d.DriveType == DriveType.Fixed && d.IsReady))
         {
             try
             {
-                var totalGb = Math.Round(d.TotalSize / (1024.0 * 1024.0 * 1024.0), 1);
-                var freeGb = Math.Round(d.AvailableFreeSpace / (1024.0 * 1024.0 * 1024.0), 1);
-                var pctUsed = (int)Math.Round(((totalGb - freeGb) / totalGb) * 100);
+                var driveLetter = d.Name.TrimEnd('\\');
+                var diskNum = GetPhysicalDiskNumber(driveLetter) ?? fallbackDiskNum;
+
+                NvmeSmartInfo? smart = null;
+                if (!string.IsNullOrEmpty(smartctlPath))
+                {
+                    if (!smartCache.TryGetValue(diskNum, out smart))
+                    {
+                        smart = QuerySmartctl(smartctlPath, diskNum);
+                        smartCache[diskNum] = smart;
+                    }
+                }
+
+                var totalGb = Math.Round(d.TotalSize / (1024.0 * 1024.0 * 1024.0), 2);
+                var freeGb = Math.Round(d.AvailableFreeSpace / (1024.0 * 1024.0 * 1024.0), 2);
+                var pctUsed = smart?.PercentageUsed ?? 0;
+                var hasCriticalAlert = (smart?.CriticalWarning ?? 0) > 0 || (smart?.MediaErrors ?? 0) > 0;
 
                 var status = new SsdStatus
                 {
-                    DiskModel = $"Disk {diskNum} ({d.VolumeLabel})",
+                    DiskModel = !string.IsNullOrWhiteSpace(smart?.DiskModel)
+                        ? smart.DiskModel!
+                        : (string.IsNullOrWhiteSpace(d.VolumeLabel) ? $"Disk {diskNum}" : $"Disk {diskNum} ({d.VolumeLabel})"),
                     PhysicalDiskNumber = diskNum,
-                    DriveLetter = d.Name.TrimEnd('\\'),
+                    DriveLetter = driveLetter,
                     TotalSpaceGB = totalGb,
                     RemainingSpaceGB = freeGb,
                     PercentageUsed = pctUsed,
-                    TemperatureCelsius = 38,
-                    AvailableSparePercent = 100,
+                    TemperatureCelsius = smart?.TemperatureCelsius ?? 0,
+                    CriticalWarning = smart?.CriticalWarning,
+                    MediaErrors = smart?.MediaErrors,
+                    ErrorLogEntries = smart?.ErrorLogEntries,
+                    UnsafeShutdowns = smart?.UnsafeShutdowns,
+                    WarningTempTime = smart?.WarningTempTime,
+                    CriticalTempTime = smart?.CriticalTempTime,
+                    AvailableSpare = smart?.AvailableSpare,
+                    AvailableSparePercent = smart?.AvailableSpare ?? 100,
                     ReallocatedSectors = 0,
                     PendingSectors = 0,
-                    UncorrectableErrors = 0,
-                    HealthStatus = "PASSED"
+                    UncorrectableErrors = (int)Math.Min(int.MaxValue, smart?.MediaErrors ?? 0),
+                    HealthStatus = hasCriticalAlert ? "FAILED" : "PASSED"
                 };
 
                 payload.SsdStatus.Add(status);
-                diskNum++;
+                fallbackDiskNum++;
             }
             catch { }
         }
+    }
+
+    private sealed class NvmeSmartInfo
+    {
+        public string? DiskModel { get; set; }
+        public int? TemperatureCelsius { get; set; }
+        public int? PercentageUsed { get; set; }
+        public int? CriticalWarning { get; set; }
+        public long? MediaErrors { get; set; }
+        public long? ErrorLogEntries { get; set; }
+        public long? UnsafeShutdowns { get; set; }
+        public long? WarningTempTime { get; set; }
+        public long? CriticalTempTime { get; set; }
+        public int? AvailableSpare { get; set; }
+    }
+
+    private static NvmeSmartInfo? QuerySmartctl(string smartctlPath, int diskNumber)
+    {
+        var device = $"/dev/pd{diskNumber}";
+
+        try
+        {
+            var jsonOut = RunProcessCapture(smartctlPath, $"-a -j {device}", 5000);
+            if (!string.IsNullOrWhiteSpace(jsonOut))
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(jsonOut);
+                    var root = doc.RootElement;
+                    var info = new NvmeSmartInfo();
+
+                    if (root.TryGetProperty("model_name", out var modelEl) && modelEl.ValueKind == JsonValueKind.String)
+                        info.DiskModel = modelEl.GetString();
+
+                    if (root.TryGetProperty("temperature", out var tempObj) &&
+                        tempObj.TryGetProperty("current", out var currTemp) &&
+                        currTemp.TryGetInt32(out var tVal))
+                    {
+                        info.TemperatureCelsius = tVal;
+                    }
+
+                    if (root.TryGetProperty("nvme_smart_health_information_log", out var nvme))
+                    {
+                        if (info.TemperatureCelsius == null && TryGetInt(nvme, "temperature", out var nvmeTemp))
+                            info.TemperatureCelsius = nvmeTemp;
+                        if (TryGetInt(nvme, "percentage_used", out var pct))
+                            info.PercentageUsed = pct;
+                        if (TryGetInt(nvme, "critical_warning", out var cw))
+                            info.CriticalWarning = cw;
+                        if (TryGetLong(nvme, "media_errors", out var me))
+                            info.MediaErrors = me;
+                        if (TryGetLong(nvme, "num_err_log_entries", out var errLogs))
+                            info.ErrorLogEntries = errLogs;
+                        if (TryGetLong(nvme, "unsafe_shutdowns", out var us))
+                            info.UnsafeShutdowns = us;
+                        if (TryGetLong(nvme, "warning_temp_time", out var wtt))
+                            info.WarningTempTime = wtt;
+                        if (TryGetLong(nvme, "critical_temp_time", out var ctt))
+                            info.CriticalTempTime = ctt;
+                        if (TryGetInt(nvme, "available_spare", out var spare))
+                            info.AvailableSpare = spare;
+                    }
+
+                    return info;
+                }
+                catch { }
+            }
+
+            // Text fallback for older smartmontools without -j JSON output
+            var textOut = RunProcessCapture(smartctlPath, $"-a {device}", 5000);
+            if (!string.IsNullOrWhiteSpace(textOut))
+            {
+                var info = new NvmeSmartInfo();
+                var mModel = Regex.Match(textOut, @"Model Number:\s*(.+)");
+                if (mModel.Success) info.DiskModel = mModel.Groups[1].Value.Trim();
+
+                var mCw = Regex.Match(textOut, @"Critical Warning:\s*0x([0-9a-fA-F]+)");
+                if (mCw.Success) info.CriticalWarning = Convert.ToInt32(mCw.Groups[1].Value, 16);
+
+                var mTemp = Regex.Match(textOut, @"Temperature:\s*(\d+)\s*Celsius");
+                if (mTemp.Success && int.TryParse(mTemp.Groups[1].Value, out var t)) info.TemperatureCelsius = t;
+
+                var mSpare = Regex.Match(textOut, @"Available Spare:\s*(\d+)%");
+                if (mSpare.Success && int.TryParse(mSpare.Groups[1].Value, out var sp)) info.AvailableSpare = sp;
+
+                var mPct = Regex.Match(textOut, @"Percentage Used:\s*(\d+)%");
+                if (mPct.Success && int.TryParse(mPct.Groups[1].Value, out var p)) info.PercentageUsed = p;
+
+                var mUnsafe = Regex.Match(textOut, @"Unsafe Shutdowns:\s*([\d,]+)");
+                if (mUnsafe.Success && long.TryParse(mUnsafe.Groups[1].Value.Replace(",", ""), out var u)) info.UnsafeShutdowns = u;
+
+                var mMedia = Regex.Match(textOut, @"Media and Data Integrity Errors:\s*([\d,]+)");
+                if (mMedia.Success && long.TryParse(mMedia.Groups[1].Value.Replace(",", ""), out var me)) info.MediaErrors = me;
+
+                var mErrLog = Regex.Match(textOut, @"Error Information Log Entries:\s*([\d,]+)");
+                if (mErrLog.Success && long.TryParse(mErrLog.Groups[1].Value.Replace(",", ""), out var el)) info.ErrorLogEntries = el;
+
+                var mWarnT = Regex.Match(textOut, @"Warning\s+Comp\.\s+Temperature\s+Time:\s*([\d,]+)");
+                if (mWarnT.Success && long.TryParse(mWarnT.Groups[1].Value.Replace(",", ""), out var wt)) info.WarningTempTime = wt;
+
+                var mCritT = Regex.Match(textOut, @"Critical\s+Comp\.\s+Temperature\s+Time:\s*([\d,]+)");
+                if (mCritT.Success && long.TryParse(mCritT.Groups[1].Value.Replace(",", ""), out var ct)) info.CriticalTempTime = ct;
+
+                return info;
+            }
+        }
+        catch { }
+
+        return null;
+    }
+
+    private static bool TryGetInt(JsonElement obj, string prop, out int value)
+    {
+        if (obj.TryGetProperty(prop, out var el) && el.TryGetInt32(out value))
+            return true;
+        value = 0;
+        return false;
+    }
+
+    private static bool TryGetLong(JsonElement obj, string prop, out long value)
+    {
+        if (obj.TryGetProperty(prop, out var el) && el.TryGetInt64(out value))
+            return true;
+        value = 0;
+        return false;
+    }
+
+    private static string? RunProcessCapture(string fileName, string arguments, int timeoutMs)
+    {
+        var psi = new ProcessStartInfo(fileName, arguments)
+        {
+            CreateNoWindow = true,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+
+        using var proc = Process.Start(psi);
+        if (proc == null) return null;
+        var output = proc.StandardOutput.ReadToEnd();
+        proc.WaitForExit(timeoutMs);
+        return output;
+    }
+
+    private static string? FindSmartctl()
+    {
+        string[] candidates = [
+            @"C:\Program Files\smartmontools\bin\smartctl.exe",
+            @"C:\Program Files (x86)\smartmontools\bin\smartctl.exe"
+        ];
+
+        foreach (var path in candidates)
+        {
+            if (File.Exists(path)) return path;
+        }
+
+        return null;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct STORAGE_DEVICE_NUMBER
+    {
+        public uint DeviceType;
+        public uint DeviceNumber;
+        public uint PartitionNumber;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+    private static extern SafeFileHandle CreateFile(
+        string lpFileName,
+        uint dwDesiredAccess,
+        uint dwShareMode,
+        IntPtr lpSecurityAttributes,
+        uint dwCreationDisposition,
+        uint dwFlagsAndAttributes,
+        IntPtr hTemplateFile);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool DeviceIoControl(
+        SafeFileHandle hDevice,
+        uint dwIoControlCode,
+        IntPtr lpInBuffer,
+        uint nInBufferSize,
+        ref STORAGE_DEVICE_NUMBER lpOutBuffer,
+        uint nOutBufferSize,
+        out uint lpBytesReturned,
+        IntPtr lpOverlapped);
+
+    private static int? GetPhysicalDiskNumber(string driveLetter)
+    {
+        const uint FILE_SHARE_READ = 0x1;
+        const uint FILE_SHARE_WRITE = 0x2;
+        const uint OPEN_EXISTING = 3;
+        const uint IOCTL_STORAGE_GET_DEVICE_NUMBER = 0x002D1080;
+
+        try
+        {
+            using var handle = CreateFile($@"\\.\{driveLetter}", 0, FILE_SHARE_READ | FILE_SHARE_WRITE, IntPtr.Zero, OPEN_EXISTING, 0, IntPtr.Zero);
+            if (handle.IsInvalid) return null;
+
+            var sdn = new STORAGE_DEVICE_NUMBER();
+            if (DeviceIoControl(handle, IOCTL_STORAGE_GET_DEVICE_NUMBER, IntPtr.Zero, 0, ref sdn, (uint)Marshal.SizeOf<STORAGE_DEVICE_NUMBER>(), out _, IntPtr.Zero))
+            {
+                return (int)sdn.DeviceNumber;
+            }
+        }
+        catch { }
+
+        return null;
     }
 
     private void ExtractThermals(TelemetryPayload payload)

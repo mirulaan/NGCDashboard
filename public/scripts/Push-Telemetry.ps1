@@ -220,7 +220,7 @@ $versionObj = [ordered]@{
 Write-Host "Done EXTRACT VERSIONS AND MOD DATES" -ForegroundColor Cyan
 
 
-# 7. EXTRACT SSD STATUS
+# 7. EXTRACT SSD STATUS (Full NVMe SMART Telemetry via smartctl -a)
 $allVolumesData = @()
 $nvmeDisks = Get-Disk | Where-Object BusType -eq 'NVMe'
 if (-not $nvmeDisks) {
@@ -229,22 +229,89 @@ if (-not $nvmeDisks) {
 }
 
 $smartctlpth = "C:\Program Files\smartmontools\bin\smartctl.exe"
+if (-not (Test-Path $smartctlpth)) {
+    $smartctlpth = "C:\Program Files (x86)\smartmontools\bin\smartctl.exe"
+}
+if (-not (Test-Path $smartctlpth)) {
+    $smartCmd = Get-Command smartctl -ErrorAction SilentlyContinue
+    if ($smartCmd) { $smartctlpth = $smartCmd.Source }
+}
 
 foreach ($disk in $nvmeDisks) {
     $temperature = 0
     $percentageUsed = 0
+    $criticalWarning = $null
+    $mediaErrors = $null
+    $errorLogEntries = $null
+    $unsafeShutdowns = $null
+    $warningTempTime = $null
+    $criticalTempTime = $null
+    $availableSpare = $null
 
-    if (Test-Path $smartctlpth) {
+    if ($smartctlpth -and (Test-Path $smartctlpth)) {
         try {
             $physicalDrive = "/dev/pd$($disk.Number)"
             $smartOutput = & $smartctlpth -a -j $physicalDrive 2>$null
+            $parsedJson = $false
+
             if ($smartOutput) {
-                $smartData = $smartOutput | ConvertFrom-Json
-                if ($smartData.temperature.current) {
-                    $temperature = $smartData.temperature.current
+                try {
+                    $smartData = ($smartOutput -join "`n") | ConvertFrom-Json
+                    if ($smartData) {
+                        $parsedJson = $true
+                        if ($null -ne $smartData.temperature -and $null -ne $smartData.temperature.current) {
+                            $temperature = [int]$smartData.temperature.current
+                        }
+
+                        $nvmeLog = $smartData.nvme_smart_health_information_log
+                        if ($null -ne $nvmeLog) {
+                            if ($temperature -eq 0 -and $null -ne $nvmeLog.temperature) {
+                                $temperature = [int]$nvmeLog.temperature
+                            }
+                            if ($null -ne $nvmeLog.percentage_used) {
+                                $percentageUsed = [int]$nvmeLog.percentage_used
+                            }
+                            if ($null -ne $nvmeLog.critical_warning) {
+                                $criticalWarning = [int]$nvmeLog.critical_warning
+                            }
+                            if ($null -ne $nvmeLog.media_errors) {
+                                $mediaErrors = [int64]$nvmeLog.media_errors
+                            }
+                            if ($null -ne $nvmeLog.num_err_log_entries) {
+                                $errorLogEntries = [int64]$nvmeLog.num_err_log_entries
+                            }
+                            if ($null -ne $nvmeLog.unsafe_shutdowns) {
+                                $unsafeShutdowns = [int64]$nvmeLog.unsafe_shutdowns
+                            }
+                            if ($null -ne $nvmeLog.warning_temp_time) {
+                                $warningTempTime = [int64]$nvmeLog.warning_temp_time
+                            }
+                            if ($null -ne $nvmeLog.critical_temp_time) {
+                                $criticalTempTime = [int64]$nvmeLog.critical_temp_time
+                            }
+                            if ($null -ne $nvmeLog.available_spare) {
+                                $availableSpare = [int]$nvmeLog.available_spare
+                            }
+                        }
+                    }
+                } catch {
+                    $parsedJson = $false
                 }
-                if ($smartData.nvme_smart_health_information_log.percentage_used) {
-                    $percentageUsed = $smartData.nvme_smart_health_information_log.percentage_used
+            }
+
+            # Text fallback for older smartmontools versions without -j JSON output
+            if (-not $parsedJson) {
+                $textOut = (& $smartctlpth -a $physicalDrive 2>$null) -join "`n"
+                if ($textOut) {
+                    if ($textOut -match 'Critical Warning:\s*0x([0-9a-fA-F]+)') { $criticalWarning = [Convert]::ToInt32($Matches[1], 16) }
+                    if ($textOut -match 'Temperature:\s*(\d+)\s*Celsius') { $temperature = [int]$Matches[1] }
+                    if ($textOut -match 'Available Spare:\s*(\d+)%') { $availableSpare = [int]$Matches[1] }
+                    if ($textOut -match 'Percentage Used:\s*(\d+)%') { $percentageUsed = [int]$Matches[1] }
+                    if ($textOut -match 'Unsafe Shutdowns:\s*([\d,]+)') { $unsafeShutdowns = [int64]($Matches[1] -replace ',', '') }
+                    if ($textOut -match 'Media and Data Integrity Errors:\s*([\d,]+)') { $mediaErrors = [int64]($Matches[1] -replace ',', '') }
+                    if ($textOut -match 'Error Information Log Entries:\s*([\d,]+)') { $errorLogEntries = [int64]($Matches[1] -replace ',', '') }
+                    if ($textOut -match 'Warning\s+Comp\.\s+Temperature\s+Time:\s*([\d,]+)') { $warningTempTime = [int64]($Matches[1] -replace ',', '') }
+                    if ($textOut -match 'Critical\s+Comp\.\s+Temperature\s+Time:\s*([\d,]+)') { $criticalTempTime = [int64]($Matches[1] -replace ',', '') }
                 }
             }
         } catch {
@@ -264,6 +331,13 @@ foreach ($disk in $nvmeDisks) {
                 RemainingSpaceGB   = [math]::Round($vol.SizeRemaining / 1GB, 2)
                 TemperatureCelsius = [int]$temperature
                 PercentageUsed     = [int]$percentageUsed
+                CriticalWarning    = $criticalWarning
+                MediaErrors        = $mediaErrors
+                ErrorLogEntries    = $errorLogEntries
+                UnsafeShutdowns    = $unsafeShutdowns
+                WarningTempTime    = $warningTempTime
+                CriticalTempTime   = $criticalTempTime
+                AvailableSpare     = $availableSpare
             }
             $allVolumesData += New-Object PSObject -Property $volumeObject
         }

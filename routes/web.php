@@ -7,6 +7,7 @@ use App\Http\Controllers\AuthController;
 // 1. Your standard routes
 Route::get('/', [DashboardController::class, 'fleet'])->name('fleet');
 Route::get('/node/{plant}/{line}/{side}', [DashboardController::class, 'show'])->name('node.show');
+Route::get('/node/{plant}/{line}/{side}/report', [DashboardController::class, 'exportReport'])->name('node.report');
 
 // Login Routes
 Route::get('/login', [AuthController::class, 'showLogin'])->name('login');

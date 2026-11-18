@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\TelemetryLog;
+use App\Services\NodeReportExcelService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
-use App\Models\TelemetryLog;
+use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
@@ -50,10 +52,16 @@ class DashboardController extends Controller
                                 'TotalSpaceGB' => $ssd->total_space_gb,
                                 'RemainingSpaceGB' => $ssd->remaining_space_gb,
                                 'DriveLetter' => $ssd->drive_letter,
-                                // Adding these just in case you need them later
                                 'PhysicalDiskNumber' => $ssd->physical_disk_number,
                                 'DiskModel' => $ssd->disk_model,
-                                'TemperatureCelsius' => $ssd->temperature_celsius
+                                'TemperatureCelsius' => $ssd->temperature_celsius,
+                                'CriticalWarning' => $ssd->critical_warning,
+                                'MediaErrors' => $ssd->media_errors,
+                                'ErrorLogEntries' => $ssd->error_log_entries,
+                                'UnsafeShutdowns' => $ssd->unsafe_shutdowns,
+                                'WarningTempTime' => $ssd->warning_temp_time,
+                                'CriticalTempTime' => $ssd->critical_temp_time,
+                                'AvailableSpare' => $ssd->available_spare,
                             ];
                         }
                     }
@@ -161,8 +169,25 @@ class DashboardController extends Controller
         ]);
 
         // 2. Loop through SSDs and save them linked to this log
-        if (!empty($validated['SSD_Status'])) {
-            foreach ($validated['SSD_Status'] as $ssd) {
+        if (! empty($validated['SSD_Status'])) {
+            foreach ($validated['SSD_Status'] as $idx => $ssd) {
+                $criticalWarning = $this->parseSmartInt($ssd['CriticalWarning'] ?? $ssd['critical_warning'] ?? null);
+                $mediaErrors = $this->parseSmartInt($ssd['MediaErrors'] ?? $ssd['media_errors'] ?? null);
+                $errorLogEntries = $this->parseSmartInt($ssd['ErrorLogEntries'] ?? $ssd['error_log_entries'] ?? $ssd['num_err_log_entries'] ?? null);
+                $unsafeShutdowns = $this->parseSmartInt($ssd['UnsafeShutdowns'] ?? $ssd['unsafe_shutdowns'] ?? null);
+                $warningTempTime = $this->parseSmartInt($ssd['WarningTempTime'] ?? $ssd['warning_temp_time'] ?? null);
+                $criticalTempTime = $this->parseSmartInt($ssd['CriticalTempTime'] ?? $ssd['critical_temp_time'] ?? null);
+                $availableSpare = $this->parseSmartInt($ssd['AvailableSpare'] ?? $ssd['AvailableSparePercent'] ?? $ssd['available_spare'] ?? null);
+
+                // Normalize cached SSD_Status payload so views see consistent integer SMART fields
+                $validated['SSD_Status'][$idx]['CriticalWarning'] = $criticalWarning;
+                $validated['SSD_Status'][$idx]['MediaErrors'] = $mediaErrors;
+                $validated['SSD_Status'][$idx]['ErrorLogEntries'] = $errorLogEntries;
+                $validated['SSD_Status'][$idx]['UnsafeShutdowns'] = $unsafeShutdowns;
+                $validated['SSD_Status'][$idx]['WarningTempTime'] = $warningTempTime;
+                $validated['SSD_Status'][$idx]['CriticalTempTime'] = $criticalTempTime;
+                $validated['SSD_Status'][$idx]['AvailableSpare'] = $availableSpare;
+
                 $log->ssdLogs()->create([
                     'disk_model' => $ssd['DiskModel'] ?? null,
                     'physical_disk_number' => $ssd['PhysicalDiskNumber'] ?? null,
@@ -171,6 +196,13 @@ class DashboardController extends Controller
                     'remaining_space_gb' => $ssd['RemainingSpaceGB'] ?? null,
                     'temperature_celsius' => $ssd['TemperatureCelsius'] ?? null,
                     'percentage_used' => $ssd['PercentageUsed'] ?? null,
+                    'critical_warning' => $criticalWarning,
+                    'media_errors' => $mediaErrors,
+                    'error_log_entries' => $errorLogEntries,
+                    'unsafe_shutdowns' => $unsafeShutdowns,
+                    'warning_temp_time' => $warningTempTime,
+                    'critical_temp_time' => $criticalTempTime,
+                    'available_spare' => $availableSpare,
                 ]);
             }
         }
@@ -187,9 +219,6 @@ class DashboardController extends Controller
     // Displays the detailed node view
     public function show($plant, $line, $side)
     {
-        $key = "{$plant}-{$line}-{$side}";
-        $matrix = Cache::get('plant_matrix', []);
-
         // Fetch historical data for the table
         $history = TelemetryLog::with('ssdLogs')
             ->where('plant', $plant)
@@ -199,14 +228,139 @@ class DashboardController extends Controller
             ->take(10)
             ->get();
 
-        // If the node has data in cache, use it. Otherwise, rebuild from latest DB record
-        $latestRecord = $history->first();
+        $data = $this->resolveNodeData($plant, $line, $side, $history->first());
+
+        // NEW query for the Chart (Gets all logs from the last 30 days)
+        $chartData = TelemetryLog::with('ssdLogs')
+            ->where('plant', $plant)->where('line', $line)->where('side', $side)
+            ->where('created_at', '>=', now()->subDays(30))
+            ->orderBy('created_at', 'asc') // Chart needs oldest to newest
+            ->get();
+
+        // Make sure to pass $chartData to the view
+        return view('node', compact('data', 'plant', 'line', 'side', 'history', 'chartData'));
+    }
+
+    // Generates and downloads a 1-month Excel (.xlsx) telemetry report for a single node
+    public function exportReport($plant, $line, $side, NodeReportExcelService $excelService)
+    {
+        $latestRecord = TelemetryLog::with('ssdLogs')
+            ->where('plant', $plant)
+            ->where('line', $line)
+            ->where('side', $side)
+            ->latest('created_at')
+            ->latest('id')
+            ->first();
+
+        $data = $this->resolveNodeData($plant, $line, $side, $latestRecord);
+
+        $skuMode = isset($data['Config Model']['SkuMode']) ? (string) $data['Config Model']['SkuMode'] : null;
+        $runningProduct = match ($skuMode) {
+            '0' => 'Color Mode',
+            '1' => 'Black Mode',
+            '2' => 'White Mode',
+            null => '-',
+            default => 'Unknown Mode',
+        };
+
+        $nodeIp = ! empty($data['IpAddress']) ? $data['IpAddress'] : ($latestRecord?->ip_address ?? '-');
+        $tier1 = $data['Tier 1'] ?? '-';
+        $tier2 = $data['Tier 2'] ?? '-';
+
+        $nodeMeta = [
+            'plant' => $plant,
+            'line' => $line,
+            'side' => $side,
+            'running_product' => $runningProduct,
+            'ip_address' => $nodeIp,
+            'tier_target' => "{$tier1} / {$tier2}",
+            'solw' => $data['Version']['solw'] ?? '-',
+            'middleware' => $data['Version']['MiddleWare'] ?? '-',
+            'dimr' => $data['Version']['DIMR'] ?? '-',
+            'ioc' => $data['Version']['IOC.bas'] ?? '-',
+            'last_seen' => $latestRecord?->created_at?->format('Y-m-d H:i:s') ?? '-',
+            'ssd_smart' => $data['SSD_Status'] ?? [],
+        ];
+
+        $periodEnd = now();
+        $periodStart = $periodEnd->copy()->subDays(30);
+        $cutoff = $periodStart->format('Y-m-d H:i:s');
+
+        $rawLogs = DB::table('telemetry_logs')
+            ->select('id', 'cpu_temp', 'created_at')
+            ->where('plant', $plant)
+            ->where('line', $line)
+            ->where('side', $side)
+            ->where('created_at', '>=', $cutoff)
+            ->orderBy('created_at', 'asc')
+            ->orderBy('id', 'asc')
+            ->get();
+
+        $rawSsds = DB::table('telemetry_ssd_logs as s')
+            ->join('telemetry_logs as t', 't.id', '=', 's.telemetry_log_id')
+            ->select('s.telemetry_log_id', 's.drive_letter', 's.physical_disk_number', 's.temperature_celsius', 's.percentage_used')
+            ->where('t.plant', $plant)
+            ->where('t.line', $line)
+            ->where('t.side', $side)
+            ->where('t.created_at', '>=', $cutoff)
+            ->orderBy('s.telemetry_log_id', 'asc')
+            ->orderBy('s.drive_letter', 'asc')
+            ->get();
+
+        $ssdsByLog = [];
+        $driveSet = [];
+
+        foreach ($rawSsds as $ssd) {
+            $drive = trim((string) ($ssd->drive_letter ?? ''));
+            if ($drive === '') {
+                $drive = $ssd->physical_disk_number !== null ? "Disk {$ssd->physical_disk_number}" : 'SSD';
+            }
+            $driveSet[$drive] = true;
+            $ssdsByLog[$ssd->telemetry_log_id][$drive] = [
+                'temp' => $this->parseNumericMetric($ssd->temperature_celsius),
+                'wear' => $this->parseNumericMetric($ssd->percentage_used),
+            ];
+        }
+
+        $drives = array_keys($driveSet);
+        sort($drives, SORT_NATURAL | SORT_FLAG_CASE);
+
+        $rows = [];
+        foreach ($rawLogs as $log) {
+            $rows[] = [
+                'timestamp' => (string) $log->created_at,
+                'cpu_temp' => $this->parseNumericMetric($log->cpu_temp),
+                'ssds' => $ssdsByLog[$log->id] ?? [],
+            ];
+        }
+
+        $filePath = $excelService->generate($nodeMeta, $rows, $drives, $periodStart, $periodEnd);
+
+        $safePlant = preg_replace('/[^A-Za-z0-9_-]/', '', (string) $plant);
+        $safeLine = preg_replace('/[^A-Za-z0-9_-]/', '', (string) $line);
+        $safeSide = preg_replace('/[^A-Za-z0-9_-]/', '', (string) $side);
+        $fileName = sprintf('NGC_Report_Plant%s_Line%s_%s_%s.xlsx', $safePlant, $safeLine, $safeSide, $periodEnd->format('Y-m-d'));
+
+        return response()->download($filePath, $fileName, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ])->deleteFileAfterSend(true);
+    }
+
+    private function resolveNodeData($plant, $line, $side, ?TelemetryLog $latestRecord = null): array
+    {
+        $key = "{$plant}-{$line}-{$side}";
+        $matrix = Cache::get('plant_matrix', []);
+
         if (isset($matrix[$key])) {
             $data = $matrix[$key];
-            if (empty($data['IpAddress']) && $latestRecord && !empty($latestRecord->ip_address)) {
+            if (empty($data['IpAddress']) && $latestRecord && ! empty($latestRecord->ip_address)) {
                 $data['IpAddress'] = $latestRecord->ip_address;
             }
-        } elseif ($latestRecord) {
+
+            return $data;
+        }
+
+        if ($latestRecord) {
             $ssdArray = [];
             foreach ($latestRecord->ssdLogs as $ssd) {
                 $ssdArray[] = [
@@ -217,9 +371,17 @@ class DashboardController extends Controller
                     'RemainingSpaceGB' => $ssd->remaining_space_gb,
                     'TemperatureCelsius' => $ssd->temperature_celsius,
                     'PercentageUsed' => $ssd->percentage_used,
+                    'CriticalWarning' => $ssd->critical_warning,
+                    'MediaErrors' => $ssd->media_errors,
+                    'ErrorLogEntries' => $ssd->error_log_entries,
+                    'UnsafeShutdowns' => $ssd->unsafe_shutdowns,
+                    'WarningTempTime' => $ssd->warning_temp_time,
+                    'CriticalTempTime' => $ssd->critical_temp_time,
+                    'AvailableSpare' => $ssd->available_spare,
                 ];
             }
-            $data = [
+
+            return [
                 'Plant' => $latestRecord->plant,
                 'Line' => $latestRecord->line,
                 'Tier 1' => $latestRecord->tier_1 ?? '-',
@@ -242,7 +404,7 @@ class DashboardController extends Controller
                     'Pre Black' => $latestRecord->config_pre_black,
                     'GSS Black' => $latestRecord->config_gss_black,
                     'GSS Machine' => $latestRecord->config_gss_machine,
-                ], fn($val) => !is_null($val)),
+                ], fn ($val) => ! is_null($val)),
                 'SSD_Status' => $ssdArray,
                 'PC Thermal' => [
                     'CPU Temp' => $latestRecord->cpu_temp,
@@ -252,28 +414,57 @@ class DashboardController extends Controller
                     'GPU Clock' => $latestRecord->gpu_clock,
                 ],
             ];
-        } else {
-            $data = [
-                'Plant' => $plant,
-                'Line' => $line,
-                'Tier 1' => '-',
-                'Tier 2' => '-',
-                'IpAddress' => null,
-                'Version' => [],
-                'Config Model' => [],
-                'SSD_Status' => []
-            ];
         }
 
-        // NEW query for the Chart (Gets all logs from the last 30 days)
-        $chartData = \App\Models\TelemetryLog::with('ssdLogs')
-            ->where('plant', $plant)->where('line', $line)->where('side', $side)
-            ->where('created_at', '>=', now()->subDays(30))
-            ->orderBy('created_at', 'asc') // Chart needs oldest to newest
-            ->get();
+        return [
+            'Plant' => $plant,
+            'Line' => $line,
+            'Tier 1' => '-',
+            'Tier 2' => '-',
+            'IpAddress' => null,
+            'Version' => [],
+            'Config Model' => [],
+            'SSD_Status' => [],
+        ];
+    }
 
-        // Make sure to pass $chartData to the view
-        return view('node', compact('data', 'plant', 'line', 'side', 'history', 'chartData'));
+    private function parseNumericMetric(mixed $value): ?float
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        if (is_numeric($value)) {
+            return (float) $value;
+        }
+        if (is_string($value) && preg_match('/-?\d+(?:\.\d+)?/', $value, $matches)) {
+            return (float) $matches[0];
+        }
+
+        return null;
+    }
+
+    private function parseSmartInt(mixed $value): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        if (is_int($value)) {
+            return max(0, $value);
+        }
+        if (is_numeric($value)) {
+            return max(0, (int) $value);
+        }
+        if (is_string($value)) {
+            $trimmed = trim($value);
+            if (preg_match('/^0x([0-9a-f]+)$/i', $trimmed, $m)) {
+                return (int) hexdec($m[1]);
+            }
+            if (preg_match('/^\d+$/', $trimmed)) {
+                return (int) $trimmed;
+            }
+        }
+
+        return null;
     }
 
     public function getPlantBackups($plant)

@@ -88,7 +88,16 @@
                     </div>
                 </div>
                 
-                <div class="flex flex-col items-end gap-1.5">
+                <div class="flex items-center gap-2">
+                    <!-- Excel Report Generator -->
+                    <a href="{{ route('node.report', ['plant' => $plant, 'line' => $line, 'side' => $side]) }}"
+                       id="btn-export-report"
+                       title="Download 1-Month Node Telemetry Report (.xlsx)"
+                       class="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white p-1.5 px-3 rounded-lg shadow-sm border border-emerald-700/20 transition-colors text-xs font-bold">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                        Export Excel Report
+                    </a>
+
                     <!-- Auth UI -->
                     @auth
                         <div class="flex items-center gap-3 bg-white p-1.5 px-3 rounded-lg shadow-sm border border-slate-200">
@@ -262,26 +271,50 @@
                         @if(!empty($data['SSD_Status']))
                             @foreach($data['SSD_Status'] as $ssd)
                                 @php
-                                    $usedSpace = $ssd['TotalSpaceGB'] - $ssd['RemainingSpaceGB'];
-                                    $fillPercentage = ($usedSpace / $ssd['TotalSpaceGB']) * 100;
+                                    $totalSpaceGb = max((float) ($ssd['TotalSpaceGB'] ?? 0), 1);
+                                    $remainingSpaceGb = (float) ($ssd['RemainingSpaceGB'] ?? 0);
+                                    $usedSpace = max(0, $totalSpaceGb - $remainingSpaceGb);
+                                    $fillPercentage = min(100, ($usedSpace / $totalSpaceGb) * 100);
                                     $isStorageAlert = $fillPercentage > 80;
                                     $barGradient = $isStorageAlert ? 'from-rose-500 to-rose-600' : 'from-indigo-500 to-cyan-400';
-                                    
-                                    $wear = $ssd['PercentageUsed'];
-                                    if ($wear > 80) {
+
+                                    $wear = (int) ($ssd['PercentageUsed'] ?? 0);
+                                    $tempC = (int) ($ssd['TemperatureCelsius'] ?? 0);
+
+                                    $critWarn = $ssd['CriticalWarning'] ?? null;
+                                    $mediaErr = $ssd['MediaErrors'] ?? null;
+                                    $errLogs = $ssd['ErrorLogEntries'] ?? null;
+                                    $unsafeOff = $ssd['UnsafeShutdowns'] ?? null;
+                                    $warnTempTime = $ssd['WarningTempTime'] ?? null;
+                                    $critTempTime = $ssd['CriticalTempTime'] ?? null;
+
+                                    $hasMediaErr = $mediaErr !== null && (int) $mediaErr > 0;
+                                    $hasCritWarn = $critWarn !== null && (int) $critWarn > 0;
+                                    $hasSmartCritical = $hasMediaErr || $hasCritWarn;
+
+                                    if ($hasSmartCritical) {
+                                        $wearStatus = $hasMediaErr ? 'Retire Drive' : 'SMART Alert';
+                                        $wearDot = 'bg-rose-600 animate-ping';
+                                        $wearText = 'text-rose-700 font-extrabold';
+                                        $wearBg = 'bg-rose-100 border-rose-300';
+                                    } elseif ($wear > 80) {
                                         $wearStatus = 'Red Alert'; $wearDot = 'bg-rose-500'; $wearText = 'text-rose-600'; $wearBg = 'bg-rose-50 border-rose-200';
                                     } elseif ($wear > 50) {
                                         $wearStatus = 'Warning'; $wearDot = 'bg-orange-500'; $wearText = 'text-orange-600'; $wearBg = 'bg-orange-50 border-orange-200';
                                     } else {
                                         $wearStatus = 'Healthy'; $wearDot = 'bg-emerald-500'; $wearText = 'text-emerald-600'; $wearBg = 'bg-slate-50 border-slate-100';
                                     }
+
+                                    $critWarnHex = $critWarn !== null ? sprintf('0x%02X', (int) $critWarn) : '-';
+                                    $tempBadgeClass = $tempC >= 70 ? 'text-rose-600 font-extrabold' : ($tempC > 45 ? 'text-amber-600 font-bold' : 'text-emerald-600 font-bold');
+                                    $cardBorder = $hasSmartCritical ? 'bg-rose-50/40 border-rose-400' : 'bg-slate-50/50 border-slate-100';
                                 @endphp
                                 
-                                <div class="bg-slate-50/50 rounded-lg p-2.5 border border-slate-100 hover:shadow-sm transition-all flex flex-col justify-between">
-                                    <div class="flex justify-between items-center mb-1.5">
-                                        <div class="flex items-center gap-2">
+                                <div class="{{ $cardBorder }} rounded-lg p-2.5 border hover:shadow-sm transition-all flex flex-col justify-between gap-1.5">
+                                    <div class="flex justify-between items-center">
+                                        <div class="flex items-center gap-2 min-w-0">
                                             <div class="w-6 h-6 bg-white rounded flex items-center justify-center border border-slate-200 shadow-sm relative overflow-hidden shrink-0">
-                                                <div class="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-indigo-500 to-cyan-400"></div>
+                                                <div class="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r {{ $hasSmartCritical ? 'from-rose-500 to-rose-600' : 'from-indigo-500 to-cyan-400' }}"></div>
                                                 <span class="text-xs font-black text-slate-700">{{ $ssd['DriveLetter'] }}</span>
                                             </div>
                                             <div class="overflow-hidden">
@@ -289,32 +322,69 @@
                                                 <p class="text-[8px] font-semibold text-slate-400 uppercase truncate" title="{{ $ssd['DiskModel'] }}">{{ $ssd['DiskModel'] }}</p>
                                             </div>
                                         </div>
-                                        <div class="flex items-center gap-1 bg-white px-1.5 py-0.5 rounded border border-slate-200 shrink-0">
-                                            @if($ssd['TemperatureCelsius'] > 45)
-                                                <span class="text-[9px] font-bold text-rose-600">{{ $ssd['TemperatureCelsius'] }}°C</span>
-                                            @else
-                                                <span class="text-[9px] font-bold text-emerald-600">{{ $ssd['TemperatureCelsius'] }}°C</span>
-                                            @endif
+                                        <div class="flex items-center gap-1 bg-white px-1.5 py-0.5 rounded border {{ $tempC >= 70 ? 'border-rose-300 bg-rose-50' : 'border-slate-200' }} shrink-0" title="Current Composite Temperature (limit typically 70-85°C)">
+                                            <span class="text-[9px] {{ $tempBadgeClass }}">{{ $tempC }}°C</span>
                                         </div>
                                     </div>
 
-                                    <div class="mb-1 flex justify-between items-end text-[9px]">
-                                        <span class="font-extrabold {{ $isStorageAlert ? 'text-rose-600' : 'text-slate-700' }}">
-                                            {{ number_format($usedSpace, 0) }} <span class="font-medium text-slate-400">GB Used</span>
-                                        </span>
-                                        <span class="font-medium text-slate-400">of {{ number_format($ssd['TotalSpaceGB'], 0) }}</span>
+                                    @if($hasSmartCritical)
+                                        <div class="flex flex-wrap gap-1">
+                                            @if($hasMediaErr)
+                                                <span class="text-[8px] font-black uppercase tracking-wider bg-rose-600 text-white px-1.5 py-0.5 rounded" title="Unrecoverable NAND/ECC errors detected — retire drive immediately">
+                                                    RETIRE DRIVE • Media Err: {{ $mediaErr }}
+                                                </span>
+                                            @endif
+                                            @if($hasCritWarn)
+                                                <span class="text-[8px] font-black uppercase tracking-wider bg-rose-100 text-rose-700 border border-rose-300 px-1.5 py-0.5 rounded" title="Active NVMe hardware/thermal/spare-block failure flag">
+                                                    CRIT WARN: {{ $critWarnHex }}
+                                                </span>
+                                            @endif
+                                        </div>
+                                    @endif
+
+                                    <div>
+                                        <div class="mb-1 flex justify-between items-end text-[9px]">
+                                            <span class="font-extrabold {{ $isStorageAlert ? 'text-rose-600' : 'text-slate-700' }}">
+                                                {{ number_format($usedSpace, 0) }} <span class="font-medium text-slate-400">GB Used</span>
+                                            </span>
+                                            <span class="font-medium text-slate-400">of {{ number_format($totalSpaceGb, 0) }}</span>
+                                        </div>
+                                        
+                                        <div class="w-full bg-slate-200 rounded-full h-1 overflow-hidden">
+                                            <div class="h-full rounded-full bg-gradient-to-r {{ $barGradient }}" style="width: {{ $fillPercentage }}%"></div>
+                                        </div>
                                     </div>
                                     
-                                    <div class="w-full bg-slate-200 rounded-full h-1 mb-2 overflow-hidden">
-                                        <div class="h-full rounded-full bg-gradient-to-r {{ $barGradient }}" style="width: {{ $fillPercentage }}%"></div>
-                                    </div>
-                                    
-                                    <div class="flex justify-between items-center text-[9px] font-semibold text-slate-500 {{ $wearBg }} rounded px-2 py-1 border">
+                                    <div class="flex justify-between items-center text-[9px] font-semibold text-slate-500 {{ $wearBg }} rounded px-2 py-0.5 border">
                                         <span>Wear: {{ $wear }}%</span>
                                         <span class="flex items-center gap-1 {{ $wearText }}">
                                             <span class="w-1.5 h-1.5 rounded-full {{ $wearDot }}"></span> 
                                             {{ $wearStatus }}
                                         </span>
+                                    </div>
+
+                                    <!-- Full NVMe SMART Vitals -->
+                                    <div class="grid grid-cols-5 gap-1 pt-1 border-t border-slate-200/70 text-center">
+                                        <div class="bg-white rounded px-1 py-0.5 border {{ $hasCritWarn ? 'border-rose-300 bg-rose-50' : 'border-slate-100' }}" title="Critical Warning: Must be 0x00. Any non-zero indicates active hardware/thermal/spare-block failure.">
+                                            <div class="text-[7px] font-bold text-slate-400 uppercase leading-tight">Crit</div>
+                                            <div class="text-[8.5px] font-mono font-bold {{ $hasCritWarn ? 'text-rose-600' : ($critWarn !== null ? 'text-emerald-600' : 'text-slate-400') }}">{{ $critWarnHex }}</div>
+                                        </div>
+                                        <div class="bg-white rounded px-1 py-0.5 border {{ $hasMediaErr ? 'border-rose-300 bg-rose-50' : 'border-slate-100' }}" title="Media & Data Integrity Errors: Must be 0. Any > 0 means unrecoverable NAND/ECC errors (retire drive immediately).">
+                                            <div class="text-[7px] font-bold text-slate-400 uppercase leading-tight">Media</div>
+                                            <div class="text-[8.5px] font-mono font-bold {{ $hasMediaErr ? 'text-rose-600' : ($mediaErr !== null ? 'text-emerald-600' : 'text-slate-400') }}">{{ $mediaErr !== null ? number_format((int) $mediaErr) : '-' }}</div>
+                                        </div>
+                                        <div class="bg-white rounded px-1 py-0.5 border {{ ($errLogs ?? 0) >= 100 ? 'border-rose-200 bg-rose-50' : (($errLogs ?? 0) > 0 ? 'border-amber-200 bg-amber-50' : 'border-slate-100') }}" title="Error Information Log Entries: High counts indicate controller timeouts or PCIe link drops.">
+                                            <div class="text-[7px] font-bold text-slate-400 uppercase leading-tight">ErrLog</div>
+                                            <div class="text-[8.5px] font-mono font-bold {{ ($errLogs ?? 0) >= 100 ? 'text-rose-600' : (($errLogs ?? 0) > 0 ? 'text-amber-600' : ($errLogs !== null ? 'text-slate-700' : 'text-slate-400')) }}">{{ $errLogs !== null ? number_format((int) $errLogs) : '-' }}</div>
+                                        </div>
+                                        <div class="bg-white rounded px-1 py-0.5 border {{ ($unsafeOff ?? 0) >= 50 ? 'border-rose-200 bg-rose-50' : (($unsafeOff ?? 0) >= 20 ? 'border-amber-200 bg-amber-50' : 'border-slate-100') }}" title="Unsafe Shutdowns: Sudden power loss events. High counts risk FTL corruption on drives without PLP.">
+                                            <div class="text-[7px] font-bold text-slate-400 uppercase leading-tight">Unsafe</div>
+                                            <div class="text-[8.5px] font-mono font-bold {{ ($unsafeOff ?? 0) >= 50 ? 'text-rose-600' : (($unsafeOff ?? 0) >= 20 ? 'text-amber-600' : ($unsafeOff !== null ? 'text-slate-700' : 'text-slate-400')) }}">{{ $unsafeOff !== null ? number_format((int) $unsafeOff) : '-' }}</div>
+                                        </div>
+                                        <div class="bg-white rounded px-1 py-0.5 border {{ ($critTempTime ?? 0) > 0 ? 'border-rose-300 bg-rose-50' : (($warnTempTime ?? 0) > 0 ? 'border-amber-200 bg-amber-50' : 'border-slate-100') }}" title="Warning Composite Temp Time (minutes spent at/above thermal limit 70-85°C){{ ($critTempTime ?? 0) > 0 ? ' | Critical Temp Time: '.$critTempTime.'m' : '' }}">
+                                            <div class="text-[7px] font-bold text-slate-400 uppercase leading-tight">WarnT</div>
+                                            <div class="text-[8.5px] font-mono font-bold {{ ($critTempTime ?? 0) > 0 ? 'text-rose-600' : (($warnTempTime ?? 0) > 0 ? 'text-amber-600' : ($warnTempTime !== null ? 'text-slate-700' : 'text-slate-400')) }}">{{ $warnTempTime !== null ? number_format((int) $warnTempTime).'m' : '-' }}</div>
+                                        </div>
                                     </div>
                                 </div>
                             @endforeach

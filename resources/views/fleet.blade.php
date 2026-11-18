@@ -168,7 +168,14 @@
                             @foreach($node['data']['SSD_Status'] as $ssd)
                                 @php
                                     $wear = $ssd['PercentageUsed'];
-                                    if ($wear > 80) {
+                                    $critWarn = $ssd['CriticalWarning'] ?? null;
+                                    $mediaErr = $ssd['MediaErrors'] ?? null;
+                                    $errLogs = $ssd['ErrorLogEntries'] ?? null;
+                                    $unsafeOff = $ssd['UnsafeShutdowns'] ?? null;
+                                    $warnTempTime = $ssd['WarningTempTime'] ?? null;
+                                    $hasSmartAlert = ($critWarn !== null && (int) $critWarn > 0) || ($mediaErr !== null && (int) $mediaErr > 0);
+
+                                    if ($hasSmartAlert || $wear > 80) {
                                         $dot = 'bg-rose-500';
                                         $pulse = 'bg-rose-400 animate-[ping_0.5s_cubic-bezier(0,0,0.2,1)_infinite]';
                                     } elseif ($wear > 50) {
@@ -183,18 +190,27 @@
                                     $remainingPercentage = ($ssd['RemainingSpaceGB'] / $totalSpace) * 100;
                                     $isLowCapacity = $remainingPercentage <= 20;
 
-                                    $ssdBoxClass = $isLowCapacity 
+                                    $ssdBoxClass = ($hasSmartAlert || $isLowCapacity)
                                         ? 'bg-rose-50 border-rose-500 animate-[pulse_0.6s_ease-in-out_infinite]' 
                                         : 'bg-slate-50 border-slate-100';
                                         
-                                    $driveLetterClass = $isLowCapacity ? 'text-rose-700' : 'text-slate-700';
+                                    $driveLetterClass = ($hasSmartAlert || $isLowCapacity) ? 'text-rose-700' : 'text-slate-700';
                                     $freeSpaceClass = $isLowCapacity ? 'text-rose-600 font-bold' : 'text-slate-500';
 
                                     $temp = $ssd['TemperatureCelsius'] ?? 0;
-                                    $tempClass = $temp > 70 ? 'text-rose-600 font-bold' : 'text-slate-500';
+                                    $tempClass = $temp >= 70 ? 'text-rose-600 font-bold' : 'text-slate-500';
+
+                                    $smartTooltip = sprintf(
+                                        'Crit Warn: %s | Media Err: %s | Err Logs: %s | Unsafe Off: %s | Warn Temp: %s',
+                                        $critWarn !== null ? sprintf('0x%02X', (int) $critWarn) : '-',
+                                        $mediaErr !== null ? $mediaErr : '-',
+                                        $errLogs !== null ? $errLogs : '-',
+                                        $unsafeOff !== null ? $unsafeOff : '-',
+                                        $warnTempTime !== null ? $warnTempTime.'m' : '-'
+                                    );
                                 @endphp
                                 
-                                <div class="flex items-center justify-between rounded-lg p-2 border text-xs transition-colors {{ $ssdBoxClass }}">
+                                <div class="flex items-center justify-between rounded-lg p-2 border text-xs transition-colors {{ $ssdBoxClass }}" title="{{ $smartTooltip }}">
                                     <div class="flex items-center gap-2">
                                         <span class="relative flex h-2 w-2 shrink-0">
                                             <span class="absolute inline-flex h-full w-full rounded-full opacity-75 {{ $pulse }}"></span>
@@ -203,6 +219,9 @@
                                         <span class="text-[10px] font-mono font-semibold text-slate-500">{{ $wear }}%</span>
                                         <span class="text-[10px] font-mono font-semibold {{ $tempClass }}">{{ $temp }}°C</span>
                                         <span class="font-bold {{ $driveLetterClass }}">{{ $ssd['DriveLetter'] }}</span>
+                                        @if($hasSmartAlert)
+                                            <span class="text-[8px] font-black uppercase bg-rose-600 text-white px-1 py-0.2 rounded leading-tight">SMART!</span>
+                                        @endif
                                     </div>
                                     <div class="font-medium {{ $freeSpaceClass }}">
                                         {{ number_format($ssd['RemainingSpaceGB'], 0) }} GB Free

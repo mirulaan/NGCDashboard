@@ -73,6 +73,27 @@ public class SsdStatus
     [JsonPropertyName("PercentageUsed")]
     public int PercentageUsed { get; set; }
 
+    [JsonPropertyName("CriticalWarning")]
+    public int? CriticalWarning { get; set; }
+
+    [JsonPropertyName("MediaErrors")]
+    public long? MediaErrors { get; set; }
+
+    [JsonPropertyName("ErrorLogEntries")]
+    public long? ErrorLogEntries { get; set; }
+
+    [JsonPropertyName("UnsafeShutdowns")]
+    public long? UnsafeShutdowns { get; set; }
+
+    [JsonPropertyName("WarningTempTime")]
+    public long? WarningTempTime { get; set; }
+
+    [JsonPropertyName("CriticalTempTime")]
+    public long? CriticalTempTime { get; set; }
+
+    [JsonPropertyName("AvailableSpare")]
+    public int? AvailableSpare { get; set; }
+
     [JsonPropertyName("AvailableSparePercent")]
     public int AvailableSparePercent { get; set; } = 100;
 
