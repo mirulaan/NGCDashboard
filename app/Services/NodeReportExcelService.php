@@ -46,10 +46,6 @@ class NodeReportExcelService
         $hasChartData = ! empty($rows);
         $effectiveDrives = ! empty($drives) ? $drives : [null];
 
-        $sheet1Xml = $this->buildOverviewSheetXml($nodeMeta, count($rows), $hasChartData, $periodStart, $periodEnd);
-        $sheet2Xml = $this->buildDataSheetXml($nodeMeta, $rows, $effectiveDrives, $periodStart, $periodEnd);
-        $sheet3Xml = $this->buildDailySummarySheetXml($nodeMeta, $rows, $effectiveDrives, $periodStart, $periodEnd);
-
         $zip = new ZipArchive();
         $result = $zip->open($tempPath, ZipArchive::CREATE | ZipArchive::OVERWRITE);
         if ($result !== true) {
@@ -65,9 +61,9 @@ class NodeReportExcelService
         $zip->addFromString('xl/workbook.xml', $this->buildWorkbookXml());
         $zip->addFromString('xl/_rels/workbook.xml.rels', $this->buildWorkbookRelsXml());
         $zip->addFromString('xl/styles.xml', $this->buildStylesXml());
-        $zip->addFromString('xl/worksheets/sheet1.xml', $sheet1Xml);
-        $zip->addFromString('xl/worksheets/sheet2.xml', $sheet2Xml);
-        $zip->addFromString('xl/worksheets/sheet3.xml', $sheet3Xml);
+        $zip->addFromString('xl/worksheets/sheet1.xml', $this->buildOverviewSheetXml($nodeMeta, count($rows), $hasChartData, $periodStart, $periodEnd));
+        $zip->addFromString('xl/worksheets/sheet2.xml', $this->buildDataSheetXml($nodeMeta, $rows, $effectiveDrives, $periodStart, $periodEnd));
+        $zip->addFromString('xl/worksheets/sheet3.xml', $this->buildDailySummarySheetXml($nodeMeta, $rows, $effectiveDrives, $periodStart, $periodEnd));
 
         if ($hasChartData) {
             $zip->addFromString('xl/worksheets/_rels/sheet1.xml.rels', $this->buildSheet1RelsXml());
@@ -98,6 +94,7 @@ class NodeReportExcelService
                     yMinZero: false
                 )
             );
+            unset($cpuSeries);
 
             // Chart 2: 1-Month SSD Temperature (°C)
             $ssdTempSeries = [];
@@ -130,6 +127,7 @@ class NodeReportExcelService
                     yMinZero: false
                 )
             );
+            unset($ssdTempSeries);
 
             // Chart 3: 1-Month SSD Wear (%)
             $ssdWearSeries = [];
@@ -162,6 +160,7 @@ class NodeReportExcelService
                     yMinZero: true
                 )
             );
+            unset($ssdWearSeries, $timestamps);
         }
 
         $zip->close();

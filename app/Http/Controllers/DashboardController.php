@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\TelemetryLog;
 use App\Services\NodeReportExcelService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -230,15 +231,135 @@ class DashboardController extends Controller
 
         $data = $this->resolveNodeData($plant, $line, $side, $history->first());
 
-        // NEW query for the Chart (Gets all logs from the last 30 days)
-        $chartData = TelemetryLog::with('ssdLogs')
-            ->where('plant', $plant)->where('line', $line)->where('side', $side)
-            ->where('created_at', '>=', now()->subDays(30))
-            ->orderBy('created_at', 'asc') // Chart needs oldest to newest
-            ->get();
+        // Lightweight 30-day chart payload (avoids hydrating thousands of Eloquent models in memory)
+        $chartData = $this->buildNodeChartData($plant, $line, $side);
 
         // Make sure to pass $chartData to the view
         return view('node', compact('data', 'plant', 'line', 'side', 'history', 'chartData'));
+    }
+
+    /**
+     * Build a compact, memory-safe 30-day chart dataset for the node view.
+     * Keeps full resolution for recent 24h logs and downsamples older history to prevent memory exhaustion.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildNodeChartData($plant, $line, $side): array
+    {
+        $now = now();
+        $thirtyDaysAgo = $now->copy()->subDays(30)->format('Y-m-d H:i:s');
+        $twentyFourHoursAgo = $now->copy()->subDay()->format('Y-m-d H:i:s');
+
+        $selectedLogs = [];
+
+        // 1. Older history (30 days ago .. 24 hours ago): stream via cursor and cap to ~1,000 points
+        $olderCount = DB::table('telemetry_logs')
+            ->where('plant', $plant)
+            ->where('line', $line)
+            ->where('side', $side)
+            ->where('created_at', '>=', $thirtyDaysAgo)
+            ->where('created_at', '<', $twentyFourHoursAgo)
+            ->count();
+
+        if ($olderCount > 0) {
+            $olderStep = $olderCount > 1000 ? (int) ceil($olderCount / 1000) : 1;
+            $idx = 0;
+            $lastOlder = null;
+
+            $olderCursor = DB::table('telemetry_logs')
+                ->select('id', 'created_at', 'gpu_temp', 'gpu_power', 'gpu_clock')
+                ->where('plant', $plant)
+                ->where('line', $line)
+                ->where('side', $side)
+                ->where('created_at', '>=', $thirtyDaysAgo)
+                ->where('created_at', '<', $twentyFourHoursAgo)
+                ->orderBy('created_at', 'asc')
+                ->orderBy('id', 'asc')
+                ->cursor();
+
+            foreach ($olderCursor as $row) {
+                if ($idx % $olderStep === 0) {
+                    $selectedLogs[] = $row;
+                }
+                $lastOlder = $row;
+                $idx++;
+            }
+
+            if ($lastOlder !== null && (empty($selectedLogs) || end($selectedLogs)->id !== $lastOlder->id)) {
+                $selectedLogs[] = $lastOlder;
+            }
+        }
+
+        // 2. Recent 24 hours: keep full resolution (cap at ~1,500 points for extreme high-frequency nodes)
+        $recentCount = DB::table('telemetry_logs')
+            ->where('plant', $plant)
+            ->where('line', $line)
+            ->where('side', $side)
+            ->where('created_at', '>=', $twentyFourHoursAgo)
+            ->count();
+
+        if ($recentCount > 0) {
+            $recentStep = $recentCount > 1500 ? (int) ceil($recentCount / 1500) : 1;
+            $idx = 0;
+            $lastRecent = null;
+
+            $recentCursor = DB::table('telemetry_logs')
+                ->select('id', 'created_at', 'gpu_temp', 'gpu_power', 'gpu_clock')
+                ->where('plant', $plant)
+                ->where('line', $line)
+                ->where('side', $side)
+                ->where('created_at', '>=', $twentyFourHoursAgo)
+                ->orderBy('created_at', 'asc')
+                ->orderBy('id', 'asc')
+                ->cursor();
+
+            foreach ($recentCursor as $row) {
+                if ($idx % $recentStep === 0) {
+                    $selectedLogs[] = $row;
+                }
+                $lastRecent = $row;
+                $idx++;
+            }
+
+            if ($lastRecent !== null && (empty($selectedLogs) || end($selectedLogs)->id !== $lastRecent->id)) {
+                $selectedLogs[] = $lastRecent;
+            }
+        }
+
+        if (empty($selectedLogs)) {
+            return [];
+        }
+
+        // 3. Fetch only SSD wear fields needed by the chart for the selected log IDs (chunked for SQLite parameter limits)
+        $ssdByLogId = [];
+        $logIds = array_map(fn ($row) => $row->id, $selectedLogs);
+
+        foreach (array_chunk($logIds, 500) as $idChunk) {
+            $ssdRows = DB::table('telemetry_ssd_logs')
+                ->select('telemetry_log_id', 'drive_letter', 'percentage_used')
+                ->whereIn('telemetry_log_id', $idChunk)
+                ->get();
+
+            foreach ($ssdRows as $ssd) {
+                $ssdByLogId[$ssd->telemetry_log_id][] = [
+                    'drive_letter' => $ssd->drive_letter,
+                    'percentage_used' => $ssd->percentage_used,
+                ];
+            }
+        }
+
+        $chartData = [];
+        foreach ($selectedLogs as $log) {
+            $chartData[] = [
+                'created_at' => Carbon::parse($log->created_at)->toJSON(),
+                'gpu_temp' => $log->gpu_temp,
+                'gpu_power' => $log->gpu_power,
+                'gpu_clock' => $log->gpu_clock,
+                'ssd_logs' => $ssdByLogId[$log->id] ?? [],
+            ];
+        }
+
+        return $chartData;
     }
 
     // Generates and downloads a 1-month Excel (.xlsx) telemetry report for a single node
@@ -286,15 +407,8 @@ class DashboardController extends Controller
         $periodStart = $periodEnd->copy()->subDays(30);
         $cutoff = $periodStart->format('Y-m-d H:i:s');
 
-        $rawLogs = DB::table('telemetry_logs')
-            ->select('id', 'cpu_temp', 'created_at')
-            ->where('plant', $plant)
-            ->where('line', $line)
-            ->where('side', $side)
-            ->where('created_at', '>=', $cutoff)
-            ->orderBy('created_at', 'asc')
-            ->orderBy('id', 'asc')
-            ->get();
+        $ssdsByLog = [];
+        $driveSet = [];
 
         $rawSsds = DB::table('telemetry_ssd_logs as s')
             ->join('telemetry_logs as t', 't.id', '=', 's.telemetry_log_id')
@@ -305,10 +419,7 @@ class DashboardController extends Controller
             ->where('t.created_at', '>=', $cutoff)
             ->orderBy('s.telemetry_log_id', 'asc')
             ->orderBy('s.drive_letter', 'asc')
-            ->get();
-
-        $ssdsByLog = [];
-        $driveSet = [];
+            ->cursor();
 
         foreach ($rawSsds as $ssd) {
             $drive = trim((string) ($ssd->drive_letter ?? ''));
@@ -326,13 +437,25 @@ class DashboardController extends Controller
         sort($drives, SORT_NATURAL | SORT_FLAG_CASE);
 
         $rows = [];
+        $rawLogs = DB::table('telemetry_logs')
+            ->select('id', 'cpu_temp', 'created_at')
+            ->where('plant', $plant)
+            ->where('line', $line)
+            ->where('side', $side)
+            ->where('created_at', '>=', $cutoff)
+            ->orderBy('created_at', 'asc')
+            ->orderBy('id', 'asc')
+            ->cursor();
+
         foreach ($rawLogs as $log) {
             $rows[] = [
                 'timestamp' => (string) $log->created_at,
                 'cpu_temp' => $this->parseNumericMetric($log->cpu_temp),
                 'ssds' => $ssdsByLog[$log->id] ?? [],
             ];
+            unset($ssdsByLog[$log->id]);
         }
+        unset($ssdsByLog);
 
         $filePath = $excelService->generate($nodeMeta, $rows, $drives, $periodStart, $periodEnd);
 

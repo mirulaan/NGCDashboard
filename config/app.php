@@ -17,6 +17,18 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Application Version
+    |--------------------------------------------------------------------------
+    |
+    | Read from the root VERSION file so air-gapped IIS deployments without .git
+    | always report the exact deployed release version (cached by config:cache).
+    |
+    */
+
+    'version' => trim((string) @file_get_contents(base_path('VERSION'))) ?: '1.0.0',
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Environment
     |--------------------------------------------------------------------------
     |

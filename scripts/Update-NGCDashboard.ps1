@@ -39,9 +39,13 @@ if (-not (Test-Path (Join-Path $Source "artisan"))) {
     throw "Source directory '$Source' is invalid: artisan file not found. Ensure you specify -Source or run from project root."
 }
 
+$versionFile = Join-Path $Source "VERSION"
+$appVersion = if (Test-Path $versionFile) { (Get-Content $versionFile -Raw).Trim() } else { "unknown" }
+
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "   NGC Dashboard - Production Deployment & State Decoupling " -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
+Write-Host "Version:     v$appVersion" -ForegroundColor Green
 Write-Host "Source:      $Source"
 Write-Host "Destination: $Destination"
 Write-Host "Data Path:   $DataPath"
