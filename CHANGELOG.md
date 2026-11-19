@@ -3,6 +3,11 @@
 All notable changes to **NGC Dashboard** are documented in this file.
 Versioning follows [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`).
 
+## [1.0.1] - 2026-11-19
+### Added
+- NVMe SMART Health Threshold Legend & Status Guide in exported node telemetry Excel reports detailing criteria for OK (Healthy), Not OK (Warning), and Critical conditions.
+- Evaluated drive `Health Status` column and threshold-based color highlights (green, amber, red) for all NVMe SMART metrics in the Excel summary table.
+
 ## [1.0.0] - 2026-11-19
 ### Added
 - Application version control (`VERSION` + `config('app.version')`) displayed as a badge on the Fleet Dashboard page and in deployment output.

@@ -128,7 +128,20 @@ test('node and fleet views surface NVMe SMART vitals and critical alerts', funct
         ->toContain('0x04')
         ->toContain('<v>150</v>')
         ->toContain('<v>62</v>')
-        ->toContain('<v>45</v>');
+        ->toContain('<v>45</v>')
+        ->toContain('Health Status')
+        ->toContain('CRITICAL')
+        ->toContain('NVMe SMART Health Threshold Legend &amp; Status Guide')
+        ->toContain('OK (Healthy)')
+        ->toContain('NOT OK (Warning)')
+        ->toContain('CRITICAL (Alert)')
+        ->toContain('&lt;= 45°C')
+        ->toContain('46°C – 69°C')
+        ->toContain('&gt;= 70°C')
+        ->toContain('&lt;= 50%')
+        ->toContain('51% – 80%')
+        ->toContain('&gt; 80%')
+        ->toContain('Retire Drive');
 });
 
 test('legacy SSD payloads without NVMe SMART fields still work cleanly', function () {

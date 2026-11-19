@@ -203,10 +203,15 @@ class NodeReportExcelService
 
         // 16 columns (A..P): A..F for Node Info, G spacer, H..P for Chart 1; A..H & I..P for Charts 2 & 3
         $out[] = '<cols>';
-        $out[] = '<col min="1" max="1" width="22" customWidth="1"/>';
-        $out[] = '<col min="2" max="6" width="11" customWidth="1"/>';
-        $out[] = '<col min="7" max="7" width="3" customWidth="1"/>';
-        $out[] = '<col min="8" max="16" width="12" customWidth="1"/>';
+        $out[] = '<col min="1" max="1" width="16" customWidth="1"/>';
+        $out[] = '<col min="2" max="2" width="26" customWidth="1"/>';
+        $out[] = '<col min="3" max="4" width="12" customWidth="1"/>';
+        $out[] = '<col min="5" max="5" width="16" customWidth="1"/>';
+        $out[] = '<col min="6" max="6" width="14" customWidth="1"/>';
+        $out[] = '<col min="7" max="8" width="17" customWidth="1"/>';
+        $out[] = '<col min="9" max="10" width="20" customWidth="1"/>';
+        $out[] = '<col min="11" max="11" width="16" customWidth="1"/>';
+        $out[] = '<col min="12" max="16" width="12" customWidth="1"/>';
         $out[] = '</cols>';
 
         $out[] = '<sheetData>';
@@ -263,8 +268,8 @@ class NodeReportExcelService
         $ssdSmartList = $nodeMeta['ssd_smart'] ?? [];
         if (! empty($ssdSmartList)) {
             $smartStartRow = $hasChartData ? 38 : 19;
-            $out[] = $this->buildMergedBannerRow($smartStartRow, 'NVMe SMART Health Summary (Latest)', 10, 3, 22);
-            $merges[] = "A{$smartStartRow}:J{$smartStartRow}";
+            $out[] = $this->buildMergedBannerRow($smartStartRow, 'NVMe SMART Health Summary (Latest)', 11, 3, 22);
+            $merges[] = "A{$smartStartRow}:K{$smartStartRow}";
 
             $smartHeaders = [
                 'Drive',
@@ -277,6 +282,7 @@ class NodeReportExcelService
                 'Unsafe Shutdowns',
                 'Warn Temp Time (min)',
                 'Crit Temp Time (min)',
+                'Health Status',
             ];
             $hdrRow = $smartStartRow + 1;
             $hdrCells = '';
@@ -292,33 +298,252 @@ class NodeReportExcelService
                 $nStyle = $isOdd ? 10 : 9;
                 $pStyle = $isOdd ? 14 : 13;
 
-                $cw = $ssd['CriticalWarning'] ?? null;
-                $cwText = $cw !== null ? sprintf('0x%02X', (int) $cw) : '-';
+                $cw = isset($ssd['CriticalWarning']) && $ssd['CriticalWarning'] !== null ? (int) $ssd['CriticalWarning'] : null;
+                $cwText = $cw !== null ? sprintf('0x%02X', $cw) : '-';
+
+                $temp = isset($ssd['TemperatureCelsius']) && $ssd['TemperatureCelsius'] !== null ? (int) $ssd['TemperatureCelsius'] : null;
+                $wear = isset($ssd['PercentageUsed']) && $ssd['PercentageUsed'] !== null ? (int) $ssd['PercentageUsed'] : null;
+                $mediaErr = isset($ssd['MediaErrors']) && $ssd['MediaErrors'] !== null ? (int) $ssd['MediaErrors'] : null;
+                $errLogs = isset($ssd['ErrorLogEntries']) && $ssd['ErrorLogEntries'] !== null ? (int) $ssd['ErrorLogEntries'] : null;
+                $unsafeOff = isset($ssd['UnsafeShutdowns']) && $ssd['UnsafeShutdowns'] !== null ? (int) $ssd['UnsafeShutdowns'] : null;
+                $warnTempTime = isset($ssd['WarningTempTime']) && $ssd['WarningTempTime'] !== null ? (int) $ssd['WarningTempTime'] : null;
+                $critTempTime = isset($ssd['CriticalTempTime']) && $ssd['CriticalTempTime'] !== null ? (int) $ssd['CriticalTempTime'] : null;
+
+                // Evaluate Drive Health Status
+                $isCritical = ($cw !== null && $cw > 0)
+                    || ($mediaErr !== null && $mediaErr > 0)
+                    || ($temp !== null && $temp >= 70)
+                    || ($wear !== null && $wear > 80)
+                    || ($errLogs !== null && $errLogs >= 100)
+                    || ($unsafeOff !== null && $unsafeOff >= 50)
+                    || ($critTempTime !== null && $critTempTime > 0);
+
+                $isWarning = ($wear !== null && $wear > 50)
+                    || ($temp !== null && $temp > 45)
+                    || ($errLogs !== null && $errLogs > 0)
+                    || ($unsafeOff !== null && $unsafeOff >= 20)
+                    || ($warnTempTime !== null && $warnTempTime > 0);
+
+                if ($isCritical) {
+                    $statusText = 'CRITICAL';
+                    $statusStyle = 18;
+                } elseif ($isWarning) {
+                    $statusText = 'NOT OK (WARN)';
+                    $statusStyle = 17;
+                } else {
+                    $statusText = 'OK';
+                    $statusStyle = 16;
+                }
+
+                // Temp cell
+                if ($temp !== null) {
+                    $tempStyle = $temp >= 70 ? 21 : ($temp > 45 ? 20 : $nStyle);
+                    $tempCell = $this->numberCell("C{$sRow}", $temp, $tempStyle);
+                } else {
+                    $tempCell = $this->stringCell("C{$sRow}", '-', $tStyle);
+                }
+
+                // Wear cell
+                if ($wear !== null) {
+                    $wearStyle = $wear > 80 ? 24 : ($wear > 50 ? 23 : $pStyle);
+                    $wearCell = $this->numberCell("D{$sRow}", $wear, $wearStyle);
+                } else {
+                    $wearCell = $this->stringCell("D{$sRow}", '-', $tStyle);
+                }
+
+                // Critical Warning cell
+                if ($cw !== null) {
+                    $cwStyle = $cw > 0 ? 18 : 16;
+                    $cwCell = $this->stringCell("E{$sRow}", $cwText, $cwStyle);
+                } else {
+                    $cwCell = $this->stringCell("E{$sRow}", '-', $tStyle);
+                }
+
+                // Media Errors cell
+                if ($mediaErr !== null) {
+                    $mediaStyle = $mediaErr > 0 ? 21 : $nStyle;
+                    $mediaCell = $this->numberCell("F{$sRow}", $mediaErr, $mediaStyle);
+                } else {
+                    $mediaCell = $this->stringCell("F{$sRow}", '-', $tStyle);
+                }
+
+                // Error Log Entries cell
+                if ($errLogs !== null) {
+                    $errStyle = $errLogs >= 100 ? 21 : ($errLogs > 0 ? 20 : $nStyle);
+                    $errCell = $this->numberCell("G{$sRow}", $errLogs, $errStyle);
+                } else {
+                    $errCell = $this->stringCell("G{$sRow}", '-', $tStyle);
+                }
+
+                // Unsafe Shutdowns cell
+                if ($unsafeOff !== null) {
+                    $unsafeStyle = $unsafeOff >= 50 ? 21 : ($unsafeOff >= 20 ? 20 : $nStyle);
+                    $unsafeCell = $this->numberCell("H{$sRow}", $unsafeOff, $unsafeStyle);
+                } else {
+                    $unsafeCell = $this->stringCell("H{$sRow}", '-', $tStyle);
+                }
+
+                // Warn Temp Time cell
+                if ($warnTempTime !== null) {
+                    $warnTStyle = $warnTempTime > 0 ? 20 : $nStyle;
+                    $warnTCell = $this->numberCell("I{$sRow}", $warnTempTime, $warnTStyle);
+                } else {
+                    $warnTCell = $this->stringCell("I{$sRow}", '-', $tStyle);
+                }
+
+                // Crit Temp Time cell
+                if ($critTempTime !== null) {
+                    $critTStyle = $critTempTime > 0 ? 21 : $nStyle;
+                    $critTCell = $this->numberCell("J{$sRow}", $critTempTime, $critTStyle);
+                } else {
+                    $critTCell = $this->stringCell("J{$sRow}", '-', $tStyle);
+                }
+
+                // Health Status cell
+                $statusCell = $this->stringCell("K{$sRow}", $statusText, $statusStyle);
 
                 $cells = $this->stringCell("A{$sRow}", (string) ($ssd['DriveLetter'] ?? '-'), $tStyle);
                 $cells .= $this->stringCell("B{$sRow}", (string) ($ssd['DiskModel'] ?? '-'), $tStyle);
-                $cells .= isset($ssd['TemperatureCelsius']) && $ssd['TemperatureCelsius'] !== null
-                    ? $this->numberCell("C{$sRow}", (int) $ssd['TemperatureCelsius'], $nStyle)
-                    : $this->stringCell("C{$sRow}", '-', $tStyle);
-                $cells .= isset($ssd['PercentageUsed']) && $ssd['PercentageUsed'] !== null
-                    ? $this->numberCell("D{$sRow}", (int) $ssd['PercentageUsed'], $pStyle)
-                    : $this->stringCell("D{$sRow}", '-', $tStyle);
-                $cells .= $this->stringCell("E{$sRow}", $cwText, $tStyle);
+                $cells .= $tempCell;
+                $cells .= $wearCell;
+                $cells .= $cwCell;
+                $cells .= $mediaCell;
+                $cells .= $errCell;
+                $cells .= $unsafeCell;
+                $cells .= $warnTCell;
+                $cells .= $critTCell;
+                $cells .= $statusCell;
 
-                $smartIntCols = [
-                    'F' => $ssd['MediaErrors'] ?? null,
-                    'G' => $ssd['ErrorLogEntries'] ?? null,
-                    'H' => $ssd['UnsafeShutdowns'] ?? null,
-                    'I' => $ssd['WarningTempTime'] ?? null,
-                    'J' => $ssd['CriticalTempTime'] ?? null,
-                ];
-                foreach ($smartIntCols as $col => $val) {
-                    $cells .= $val !== null
-                        ? $this->numberCell("{$col}{$sRow}", (int) $val, $nStyle)
-                        : $this->stringCell("{$col}{$sRow}", '-', $tStyle);
-                }
+                $out[] = '<row r="'.$sRow.'" ht="20" customHeight="1">'.$cells.'</row>';
+                $sRow++;
+            }
 
-                $out[] = '<row r="'.$sRow.'" ht="19" customHeight="1">'.$cells.'</row>';
+            // Spacer row before Legend
+            $out[] = '<row r="'.$sRow.'" ht="14" customHeight="1"/>';
+            $sRow++;
+
+            // Legend Banner
+            $legendStartRow = $sRow;
+            $out[] = $this->buildMergedBannerRow($legendStartRow, 'NVMe SMART Health Threshold Legend & Status Guide', 11, 3, 22);
+            $merges[] = "A{$legendStartRow}:K{$legendStartRow}";
+            $sRow++;
+
+            // Legend Column Headers
+            $lHdrRow = $sRow;
+            $lHdrCells = $this->stringCell("A{$lHdrRow}", 'Metric / SMART Attribute', 6);
+            $lHdrCells .= '<c r="B'.$lHdrRow.'" s="6"/>';
+            $merges[] = "A{$lHdrRow}:B{$lHdrRow}";
+
+            $lHdrCells .= $this->stringCell("C{$lHdrRow}", 'OK (Healthy)', 16);
+            $lHdrCells .= '<c r="D'.$lHdrRow.'" s="16"/>';
+            $merges[] = "C{$lHdrRow}:D{$lHdrRow}";
+
+            $lHdrCells .= $this->stringCell("E{$lHdrRow}", 'NOT OK (Warning)', 17);
+            $lHdrCells .= '<c r="F'.$lHdrRow.'" s="17"/>';
+            $merges[] = "E{$lHdrRow}:F{$lHdrRow}";
+
+            $lHdrCells .= $this->stringCell("G{$lHdrRow}", 'CRITICAL (Alert)', 18);
+            $lHdrCells .= '<c r="H'.$lHdrRow.'" s="18"/>';
+            $merges[] = "G{$lHdrRow}:H{$lHdrRow}";
+
+            $lHdrCells .= $this->stringCell("I{$lHdrRow}", 'Meaning & Operational Guidance', 6);
+            $lHdrCells .= '<c r="J'.$lHdrRow.'" s="6"/>';
+            $lHdrCells .= '<c r="K'.$lHdrRow.'" s="6"/>';
+            $merges[] = "I{$lHdrRow}:K{$lHdrRow}";
+
+            $out[] = '<row r="'.$lHdrRow.'" ht="24" customHeight="1">'.$lHdrCells.'</row>';
+            $sRow++;
+
+            // Legend Items with threshold definitions
+            $legendItems = [
+                [
+                    'metric' => 'Temperature (°C)',
+                    'ok' => '<= 45°C',
+                    'warn' => '46°C – 69°C',
+                    'crit' => '>= 70°C',
+                    'desc' => 'Composite operating temperature. >=70°C causes thermal throttling and accelerates NAND wear. Check cooling fans & airflow.',
+                ],
+                [
+                    'metric' => 'Percentage Used (Wear %)',
+                    'ok' => '<= 50%',
+                    'warn' => '51% – 80%',
+                    'crit' => '> 80%',
+                    'desc' => 'Vendor endurance consumed. Plan spare SSD when wear is 51-80%; replace immediately when >80% before available spare blocks deplete.',
+                ],
+                [
+                    'metric' => 'Critical Warning (Hex)',
+                    'ok' => '0x00',
+                    'warn' => 'N/A (Any flag is critical)',
+                    'crit' => '> 0x00 (Any bit)',
+                    'desc' => 'Hardware alert bitmask: 0x01 spare below threshold, 0x02 temp trip, 0x04 degraded reliability, 0x08 read-only. Immediate replacement required.',
+                ],
+                [
+                    'metric' => 'Media & Data Errors',
+                    'ok' => '0',
+                    'warn' => 'N/A (Any error is critical)',
+                    'crit' => '> 0 (Retire Drive)',
+                    'desc' => 'Unrecoverable NAND ECC or read-write data integrity errors detected. Backup data and retire/replace drive immediately to prevent data loss.',
+                ],
+                [
+                    'metric' => 'Error Log Entries',
+                    'ok' => '0',
+                    'warn' => '1 – 99',
+                    'crit' => '>= 100',
+                    'desc' => 'Cumulative error log entries (PCIe link retries, controller timeouts, protocol aborts). High counts indicate bus or controller degradation.',
+                ],
+                [
+                    'metric' => 'Unsafe Shutdowns',
+                    'ok' => '< 20',
+                    'warn' => '20 – 49',
+                    'crit' => '>= 50',
+                    'desc' => 'Sudden power-loss events without flush notice. High counts risk Flash Translation Layer (FTL) corruption on SSDs without PLP.',
+                ],
+                [
+                    'metric' => 'Warn Temp Time (min)',
+                    'ok' => '0 min',
+                    'warn' => '> 0 min',
+                    'crit' => '> 60 min / High',
+                    'desc' => 'Cumulative minutes spent at or above warning temperature threshold (typically 70°C). Indicates chronic thermal stress.',
+                ],
+                [
+                    'metric' => 'Crit Temp Time (min)',
+                    'ok' => '0 min',
+                    'warn' => 'N/A (Any critical time is severe)',
+                    'crit' => '> 0 min',
+                    'desc' => 'Cumulative minutes spent at or above critical temperature threshold (typically 80-85°C). Critical thermal throttling occurred.',
+                ],
+                [
+                    'metric' => 'Overall Drive Health Status',
+                    'ok' => 'OK (All vitals normal)',
+                    'warn' => 'NOT OK (Any warning range)',
+                    'crit' => 'CRITICAL (Any alert range)',
+                    'desc' => 'Overall drive condition based on highest detected severity. Drives marked CRITICAL require urgent maintenance or hardware replacement.',
+                ],
+            ];
+
+            foreach ($legendItems as $item) {
+                $cells = $this->stringCell("A{$sRow}", $item['metric'], 25);
+                $cells .= '<c r="B'.$sRow.'" s="25"/>';
+                $merges[] = "A{$sRow}:B{$sRow}";
+
+                $cells .= $this->stringCell("C{$sRow}", $item['ok'], 16);
+                $cells .= '<c r="D'.$sRow.'" s="16"/>';
+                $merges[] = "C{$sRow}:D{$sRow}";
+
+                $cells .= $this->stringCell("E{$sRow}", $item['warn'], 17);
+                $cells .= '<c r="F'.$sRow.'" s="17"/>';
+                $merges[] = "E{$sRow}:F{$sRow}";
+
+                $cells .= $this->stringCell("G{$sRow}", $item['crit'], 18);
+                $cells .= '<c r="H'.$sRow.'" s="18"/>';
+                $merges[] = "G{$sRow}:H{$sRow}";
+
+                $cells .= $this->stringCell("I{$sRow}", $item['desc'], 26);
+                $cells .= '<c r="J'.$sRow.'" s="26"/>';
+                $cells .= '<c r="K'.$sRow.'" s="26"/>';
+                $merges[] = "I{$sRow}:K{$sRow}";
+
+                $out[] = '<row r="'.$sRow.'" ht="26" customHeight="1">'.$cells.'</row>';
                 $sRow++;
             }
         }
@@ -1106,15 +1331,20 @@ XML;
         <numFmt numFmtId="164" formatCode="0.0"/>
         <numFmt numFmtId="165" formatCode="0&quot;%&quot;"/>
     </numFmts>
-    <fonts count="6">
+    <fonts count="11">
         <font><sz val="10"/><color rgb="FF1E293B"/><name val="Calibri"/></font>
         <font><b/><sz val="13"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>
         <font><i/><sz val="9.5"/><color rgb="FF475569"/><name val="Calibri"/></font>
         <font><b/><sz val="10.5"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>
         <font><b/><sz val="10"/><color rgb="FF1E293B"/><name val="Calibri"/></font>
         <font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>
+        <font><b/><sz val="9.5"/><color rgb="FF166534"/><name val="Calibri"/></font>
+        <font><b/><sz val="9.5"/><color rgb="FF92400E"/><name val="Calibri"/></font>
+        <font><b/><sz val="9.5"/><color rgb="FF991B1B"/><name val="Calibri"/></font>
+        <font><sz val="9"/><color rgb="FF334155"/><name val="Calibri"/></font>
+        <font><b/><sz val="9.5"/><color rgb="FF1E293B"/><name val="Calibri"/></font>
     </fonts>
-    <fills count="7">
+    <fills count="11">
         <fill><patternFill patternType="none"/></fill>
         <fill><patternFill patternType="gray125"/></fill>
         <fill><patternFill patternType="solid"><fgColor rgb="FF0F172A"/></patternFill></fill>
@@ -1122,6 +1352,10 @@ XML;
         <fill><patternFill patternType="solid"><fgColor rgb="FF4F46E5"/></patternFill></fill>
         <fill><patternFill patternType="solid"><fgColor rgb="FFF8FAFC"/></patternFill></fill>
         <fill><patternFill patternType="solid"><fgColor rgb="FF1E293B"/></patternFill></fill>
+        <fill><patternFill patternType="solid"><fgColor rgb="FFDCFCE7"/></patternFill></fill>
+        <fill><patternFill patternType="solid"><fgColor rgb="FFFEF3C7"/></patternFill></fill>
+        <fill><patternFill patternType="solid"><fgColor rgb="FFFEE2E2"/></patternFill></fill>
+        <fill><patternFill patternType="solid"><fgColor rgb="FFF1F5F9"/></patternFill></fill>
     </fills>
     <borders count="2">
         <border><left/><right/><top/><bottom/><diagonal/></border>
@@ -1136,7 +1370,7 @@ XML;
     <cellStyleXfs count="1">
         <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
     </cellStyleXfs>
-    <cellXfs count="16">
+    <cellXfs count="28">
         <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
         <xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="left" vertical="center" indent="1"/></xf>
         <xf numFmtId="0" fontId="2" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="left" vertical="center" indent="1"/></xf>
@@ -1153,6 +1387,18 @@ XML;
         <xf numFmtId="165" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
         <xf numFmtId="165" fontId="0" fillId="5" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
         <xf numFmtId="0" fontId="2" fillId="5" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+        <xf numFmtId="0" fontId="6" fillId="7" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+        <xf numFmtId="0" fontId="7" fillId="8" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+        <xf numFmtId="0" fontId="8" fillId="9" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+        <xf numFmtId="1" fontId="6" fillId="7" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
+        <xf numFmtId="1" fontId="7" fillId="8" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
+        <xf numFmtId="1" fontId="8" fillId="9" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
+        <xf numFmtId="165" fontId="6" fillId="7" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
+        <xf numFmtId="165" fontId="7" fillId="8" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
+        <xf numFmtId="165" fontId="8" fillId="9" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
+        <xf numFmtId="0" fontId="10" fillId="10" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" indent="1"/></xf>
+        <xf numFmtId="0" fontId="9" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" indent="1" wrapText="1"/></xf>
+        <xf numFmtId="0" fontId="5" fillId="6" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" indent="1"/></xf>
     </cellXfs>
 </styleSheet>
 XML;
