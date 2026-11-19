@@ -83,7 +83,7 @@ To run diagnostics across multiple stations over the plant network without loggi
 1. Open **PowerShell as Administrator** on the plant server or engineer PC.
 2. Run `Deploy-SSDForensicsFleet.ps1` with the target IP addresses:
    ```powershell
-   powershell -ExecutionPolicy Bypass -File .\scripts\Deploy-SSDForensicsFleet.ps1 -TargetIps @("172.16.50.11", "172.16.50.12", "172.16.50.100", "172.16.50.101")
+   powershell -ExecutionPolicy Bypass -File .\scripts\Deploy-SSDForensicsFleet.ps1 -TargetIps @("172.16.199.2", "172.16.199.8", "172.16.199.18", "172.16.199.25")
    ```
 3. The script will:
    - Deploy `Invoke-SSDForensics.ps1` to `\\<IP>\C$\Temp\SSD_Diagnostics`.
