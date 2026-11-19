@@ -30,6 +30,7 @@ An on-premise industrial IoT and manufacturing line monitoring platform tailored
 - [API Reference](#api-reference)
 - [Air-Gapped & Offline Readiness](#air-gapped--offline-readiness)
 - [Troubleshooting & Maintenance](#troubleshooting--maintenance)
+  - [SSD Failure Triaging & Forensics](#6-ssd-failure-triaging--root-cause-forensics)
 
 ---
 
@@ -523,6 +524,14 @@ When updating code, routes, or plant topologies:
 ```bash
 php artisan optimize:clear
 ```
+
+### 6. SSD Failure Triaging & Root-Cause Forensics
+When encountering NVMe storage drops, sudden disk disappearance (`Event 157`), or premature drive failure on edge inspection PCs:
+* Run the built-in forensic collector:
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File .\scripts\Invoke-SSDForensics.ps1
+  ```
+* For full triage matrices, remote fleet deployment, and cross-station aggregation, refer to the [SSD Forensics & Root-Cause Analysis Guide](docs/SSDForensicsGuide.md).
 
 ---
 
