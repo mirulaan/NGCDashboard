@@ -50,7 +50,7 @@ internal static class Program
 
         // 3. Normal Daemon / Tray Execution
         Log("=================================================");
-        Log("Starting NGC Telemetry Agent v1.0.0...");
+        Log("Starting NGC Telemetry Agent v1.0.2...");
 
         // Ensure legacy tasks are retired upon first normal launch
         TaskSchedulerManager.RetireLegacyTasks(Log);
@@ -61,8 +61,22 @@ internal static class Program
 
         telemetryDispatcher.Start();
 
-        var trayContext = new TrayApplicationContext(config, telemetryDispatcher, dailyBackup, Log);
+        var trayContext = new TrayApplicationContext(config, telemetryCollector, telemetryDispatcher, dailyBackup, Log, SaveConfiguration);
         Application.Run(trayContext);
+    }
+
+    private static void SaveConfiguration(AgentConfig config)
+    {
+        try
+        {
+            var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(ConfigPath, json);
+            Log("Agent configuration successfully saved to config.json");
+        }
+        catch (Exception ex)
+        {
+            Log($"Failed to save config.json: {ex.Message}");
+        }
     }
 
     private static AgentConfig LoadConfiguration()

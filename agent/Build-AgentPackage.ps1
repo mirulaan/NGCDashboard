@@ -33,7 +33,7 @@ Write-Host "==========================================================" -Foregro
 
 # 1. Check for dotnet SDK
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
-    Write-Error "The .NET SDK ('dotnet') is not found on this machine. Please install .NET 8 SDK (offline installer available at https://dotnet.microsoft.com/download/dotnet/8.0)."
+    Write-Error "The .NET SDK ('dotnet') is not found on this machine. Please install .NET 9 SDK (offline installer available at https://dotnet.microsoft.com/download/dotnet/9.0)."
     Exit 1
 }
 
@@ -101,11 +101,25 @@ Write-Host "Copied binary to: $standaloneExeDestination" -ForegroundColor Cyan
 
 # 6. Compress into Distribution Zip
 if (Test-Path $zipDestination) {
-    Remove-Item -Path $zipDestination -Force
+    Remove-Item -Path $zipDestination -Force -ErrorAction SilentlyContinue
 }
 
 Write-Host "Compressing distribution zip package..." -ForegroundColor Yellow
-Compress-Archive -Path "$stagingDir\*" -DestinationPath $zipDestination -CompressionLevel Optimal
+$compressSuccess = $false
+for ($attempt = 1; $attempt -le 5; $attempt++) {
+    try {
+        Start-Sleep -Milliseconds (600 * $attempt)
+        Compress-Archive -Path "$stagingDir\*" -DestinationPath $zipDestination -CompressionLevel Optimal
+        $compressSuccess = $true
+        break
+    } catch {
+        Write-Warning "Compress-Archive attempt $attempt locked. Retrying in 1s..."
+        Start-Sleep -Seconds 1
+    }
+}
+if (-not $compressSuccess) {
+    Write-Warning "Zip packaging skipped due to file lock. Standalone binary is available at $standaloneExeDestination."
+}
 
 $zipSizeMB = [math]::Round(((Get-Item $zipDestination).Length / 1MB), 2)
 Write-Host "Successfully generated distribution package ($zipSizeMB MB): $zipDestination" -ForegroundColor Green

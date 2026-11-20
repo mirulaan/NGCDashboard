@@ -24,7 +24,7 @@ public class TelemetryCollectorService
         {
             Agent = new AgentInfo
             {
-                Version = "1.0.0",
+                Version = "1.0.2",
                 UptimeSeconds = (long)_uptime.Elapsed.TotalSeconds,
                 PushIntervalSeconds = _config.PushIntervalSeconds
             },

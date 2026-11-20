@@ -70,8 +70,19 @@ public class TelemetryDispatcherService
         }
         catch (Exception ex)
         {
-            LastPushError = ex.Message;
-            Log($"Failed to push telemetry: {ex.Message}", "ERROR");
+            if (ex is TaskCanceledException || ex is TimeoutException)
+            {
+                LastPushError = $"Connection timeout reaching server {_config.ServerUrl}";
+            }
+            else if (ex is HttpRequestException)
+            {
+                LastPushError = $"Unable to connect to dashboard server ({ex.Message})";
+            }
+            else
+            {
+                LastPushError = ex.Message;
+            }
+            Log($"Failed to push telemetry: {LastPushError}", "ERROR");
             return false;
         }
     }

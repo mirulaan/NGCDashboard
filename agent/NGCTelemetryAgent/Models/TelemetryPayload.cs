@@ -41,7 +41,7 @@ public class TelemetryPayload
 public class AgentInfo
 {
     [JsonPropertyName("Version")]
-    public string Version { get; set; } = "1.0.0";
+    public string Version { get; set; } = "1.0.2";
 
     [JsonPropertyName("UptimeSeconds")]
     public long UptimeSeconds { get; set; }
